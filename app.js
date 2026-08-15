@@ -1,0 +1,904 @@
+/* =====================================================================
+   Ügyeleti tábla
+   GitHub Pages (statikus oldal) + Supabase (adatbázis és Google belépés).
+   Belépni csak azzal a Google-fiókkal lehet, amelyik szerepel a névsorban.
+   ===================================================================== */
+
+const CFG = window.APP_CONFIG || {};
+
+const HU_MONTH = ['január', 'február', 'március', 'április', 'május', 'június',
+                  'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
+const HU_SHORT = ['jan', 'febr', 'márc', 'ápr', 'máj', 'jún', 'júl', 'aug', 'szept', 'okt', 'nov', 'dec'];
+const DOW = ['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap'];
+const DOW_ABBR = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'];
+
+const STATE_LABEL = { yes: 'Ráér', maybe: 'Ha muszáj', no: 'Nem ér rá' };
+const STATE_COLOR = { yes: 'var(--yes)', maybe: 'var(--maybe)', no: 'var(--no)' };
+const CYCLE = [null, 'yes', 'maybe', 'no'];
+const COLORS = ['#1A73E8', '#1E8E3E', '#E8710A', '#D01884', '#7B1FA2', '#00838F', '#C5221F', '#5F6368'];
+
+/* -------------------------------------------------------------- eszközök */
+
+const el = (id) => document.getElementById(id);
+const pad = (n) => String(n).padStart(2, '0');
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fromISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const dowIdx = (d) => (d.getDay() + 6) % 7;
+const huDate = (d) => `${d.getFullYear()}. ${HU_SHORT[d.getMonth()]}. ${d.getDate()}.`;
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const uuid = () => (crypto?.randomUUID ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); }));
+
+const slug = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'nevtelen';
+
+/** A hónap napjai – mindig teljes hetek, hétfőtől vasárnapig. */
+function monthDays(year, month, mode) {
+  const days = [];
+  if (mode === 'calendar') {
+    const first = new Date(year, month, 1), last = new Date(year, month + 1, 0);
+    let cur = addDays(first, -dowIdx(first));
+    const end = addDays(last, 6 - dowIdx(last));
+    while (cur <= end) { days.push(cur); cur = addDays(cur, 1); }
+  } else {
+    const first = new Date(year, month, 1);
+    let cur = dowIdx(first) === 0 ? first : addDays(first, 7 - dowIdx(first));
+    while (cur.getMonth() === month && cur.getFullYear() === year) {
+      for (let i = 0; i < 7; i++) days.push(addDays(cur, i));
+      cur = addDays(cur, 7);
+    }
+  }
+  return days;
+}
+
+const session = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch { /* nem baj */ } },
+  del(k) { try { sessionStorage.removeItem(k); } catch { /* nem baj */ } }
+};
+
+/* ============================================================= backendek */
+
+/** Bemutató mód: nincs Supabase, az adatok az oldal frissítéséig élnek. */
+function demoBackend() {
+  const people = [
+    { id: uuid(), name: 'Vanda',  email: 'vanda.buri@gmail.com',       color: COLORS[0], role: 'approver', can_duty: true, sort_order: 1 },
+    { id: uuid(), name: 'Bálint', email: 'takacsbalint0202@gmail.com', color: COLORS[1], role: 'duty',     can_duty: true, sort_order: 2 },
+    { id: uuid(), name: 'Peti',   email: 'ppalotai4@gmail.com',        color: COLORS[2], role: 'duty',     can_duty: true, sort_order: 3 },
+    { id: uuid(), name: 'Barbi',  email: 'barbara.kalanova@gmail.com', color: COLORS[3], role: 'duty',     can_duty: true, sort_order: 4 },
+    { id: uuid(), name: 'Bandi',  email: 'laandro3@gmail.com',         color: COLORS[4], role: 'duty',     can_duty: true, sort_order: 5 }
+  ];
+  const marks = new Map(), sched = new Map(), months = new Map();
+  let config = { week_mode: 'weeks' }, who = null;
+
+  return {
+    kind: 'demo',
+    async signedIn() { return !!who; },
+    async whoami() { return who; },
+    async signIn(id) { who = people.find((p) => p.id === id) || null; },
+    async signOut() { who = null; },
+    async listPeople() { return people.slice().sort((a, b) => a.sort_order - b.sort_order); },
+    async savePeople(rows, removed) {
+      removed.forEach((id) => {
+        const i = people.findIndex((p) => p.id === id);
+        if (i >= 0) people.splice(i, 1);
+        [...marks.keys()].filter((k) => k.startsWith(id + '|')).forEach((k) => marks.delete(k));
+        [...sched.entries()].forEach(([d, p]) => { if (p === id) sched.delete(d); });
+      });
+      rows.forEach((r) => {
+        const i = people.findIndex((p) => p.id === r.id);
+        if (i >= 0) people[i] = { ...people[i], ...r }; else people.push({ ...r });
+      });
+      if (who) who = people.find((p) => p.id === who.id) || null;
+    },
+    async loadRange(from, to, month) {
+      const inR = (d) => d >= from && d <= to;
+      const m = {};
+      marks.forEach((st, k) => { const [p, d] = k.split('|'); if (inR(d)) ((m[p] ||= {})[d] = st); });
+      const s = {};
+      sched.forEach((p, d) => { if (inR(d)) s[d] = p; });
+      return { marks: m, schedule: s, meta: months.get(month) || null };
+    },
+    async setMark(p, d, st) { const k = `${p}|${d}`; st ? marks.set(k, st) : marks.delete(k); },
+    async setAssign(d, p) { p ? sched.set(d, p) : sched.delete(d); },
+    async setAssignMany(list) { list.forEach(([d, p]) => (p ? sched.set(d, p) : sched.delete(d))); },
+    async setLock(month, locked, by) {
+      months.set(month, { month, locked, locked_at: locked ? new Date().toISOString() : null, locked_by: by });
+    },
+    async getConfig() { return config; },
+    async setConfig(patch) { config = { ...config, ...patch }; },
+    subscribe() { return () => {}; }
+  };
+}
+
+/** Éles mód: Supabase + Google belépés. */
+async function supabaseBackend(url, key) {
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+  const sb = createClient(url, key, {
+    auth: { persistSession: true, detectSessionInUrl: true, autoRefreshToken: true, flowType: 'pkce' }
+  });
+  const ok = (res) => { if (res.error) throw new Error(res.error.message); return res.data; };
+
+  return {
+    kind: 'supabase',
+    sb,
+    async signedIn() { return !!(await sb.auth.getSession()).data.session; },
+    async email() { return (await sb.auth.getUser()).data.user?.email || null; },
+    async whoami() {
+      const rows = ok(await sb.rpc('whoami'));
+      return rows?.[0] || null;
+    },
+    async signIn() {
+      const back = location.origin + location.pathname;
+      ok(await sb.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: back, queryParams: { prompt: 'select_account' } }
+      }));
+    },
+    async signOut() { await sb.auth.signOut(); },
+    async listPeople() {
+      return ok(await sb.from('people')
+        .select('id,name,email,color,role,can_duty,sort_order').order('sort_order')) || [];
+    },
+    async savePeople(rows, removed) {
+      if (removed.length) ok(await sb.from('people').delete().in('id', removed));
+      if (rows.length) ok(await sb.from('people').upsert(rows, { onConflict: 'id' }));
+    },
+    async loadRange(from, to, month) {
+      const [mk, sc, mo] = await Promise.all([
+        sb.from('marks').select('person_id,day,state').gte('day', from).lte('day', to),
+        sb.from('schedule').select('day,person_id').gte('day', from).lte('day', to),
+        sb.from('months').select('month,locked,locked_at,locked_by').eq('month', month).maybeSingle()
+      ]);
+      const marks = {};
+      (ok(mk) || []).forEach((r) => ((marks[r.person_id] ||= {})[r.day] = r.state));
+      const schedule = {};
+      (ok(sc) || []).forEach((r) => { if (r.person_id) schedule[r.day] = r.person_id; });
+      return { marks, schedule, meta: ok(mo) };
+    },
+    async setMark(person, day, state) {
+      if (!state) ok(await sb.from('marks').delete().eq('person_id', person).eq('day', day));
+      else ok(await sb.from('marks').upsert({ person_id: person, day, state, updated_at: new Date().toISOString() },
+        { onConflict: 'person_id,day' }));
+    },
+    async setAssign(day, person) {
+      if (!person) ok(await sb.from('schedule').delete().eq('day', day));
+      else ok(await sb.from('schedule').upsert({ day, person_id: person, updated_at: new Date().toISOString() },
+        { onConflict: 'day' }));
+    },
+    async setAssignMany(list) {
+      const up = list.filter(([, p]) => p).map(([day, person_id]) => ({ day, person_id, updated_at: new Date().toISOString() }));
+      const del = list.filter(([, p]) => !p).map(([day]) => day);
+      if (del.length) ok(await sb.from('schedule').delete().in('day', del));
+      if (up.length) ok(await sb.from('schedule').upsert(up, { onConflict: 'day' }));
+    },
+    async setLock(month, locked, by) {
+      ok(await sb.from('months').upsert({
+        month, locked,
+        locked_at: locked ? new Date().toISOString() : null,
+        locked_by: locked ? by : null,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'month' }));
+    },
+    async getConfig() {
+      return ok(await sb.from('app_config').select('week_mode').eq('id', 1).maybeSingle()) || { week_mode: 'weeks' };
+    },
+    async setConfig(patch) {
+      ok(await sb.from('app_config').upsert({ id: 1, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'id' }));
+    },
+    subscribe(cb) {
+      const ch = sb.channel('ugyelet').on('postgres_changes', { event: '*', schema: 'public' }, cb).subscribe();
+      return () => sb.removeChannel(ch);
+    }
+  };
+}
+
+/* ================================================================ állapot */
+
+const S = {
+  phase: 'loading',      // loading | signin | blocked | board
+  backend: null,
+  demo: false,
+  error: null,
+  authEmail: null,
+  people: [],
+  me: null,
+  cursor: new Date(),
+  weekMode: 'weeks',
+  mode: 'assign',        // a véglegesítő nézete: assign | mark
+  marks: {},
+  schedule: {},
+  meta: null,
+  days: [],
+  pending: 0,
+  lastSync: null,
+  dialog: null,
+  draft: null,
+  toastTimer: null
+};
+
+const byId = (id) => S.people.find((p) => p.id === id) || null;
+const roster = () => S.people.filter((p) => p.can_duty !== false);
+const approver = () => S.people.find((p) => p.role === 'approver') || null;
+const isApprover = () => S.me?.role === 'approver';
+const monthKey = () => `${S.cursor.getFullYear()}-${pad(S.cursor.getMonth() + 1)}-01`;
+const isLocked = () => !!S.meta?.locked;
+const markOf = (pid, day) => S.marks[pid]?.[day] || null;
+const assigning = () => isApprover() && S.mode === 'assign' && !isLocked();
+
+function recomputeDays() {
+  S.days = monthDays(S.cursor.getFullYear(), S.cursor.getMonth(), S.weekMode);
+}
+
+/* =============================================================== indulás */
+
+async function boot() {
+  render();
+  try {
+    if (CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY) {
+      S.backend = await supabaseBackend(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    } else {
+      S.backend = demoBackend();
+      S.demo = true;
+      S.people = await S.backend.listPeople();
+    }
+  } catch (e) {
+    S.error = 'Nem sikerült elindítani a kapcsolatot: ' + (e.message || e);
+    S.phase = 'signin';
+    return render();
+  }
+
+  const url = new URL(location.href);
+  const authError = url.searchParams.get('error_description') || url.searchParams.get('error')
+    || (location.hash.includes('error=') ? decodeURIComponent(location.hash.split('error_description=')[1] || 'Belépési hiba') : null);
+  if (authError) {
+    S.error = String(authError).replace(/\+/g, ' ');
+    history.replaceState({}, '', location.origin + location.pathname);
+  }
+
+  if (!(await S.backend.signedIn())) {
+    // Az oldal megnyitásakor magától felajánlja a Google-belépést.
+    if (!S.demo && !S.error && !session.get('sso.tried')) {
+      session.set('sso.tried', String(Date.now()));
+      S.phase = 'loading';
+      render();
+      try { return await S.backend.signIn(); } catch (e) { S.error = e.message || String(e); }
+    }
+    S.phase = 'signin';
+    return render();
+  }
+
+  session.del('sso.tried');
+  if (url.searchParams.has('code')) history.replaceState({}, '', location.origin + location.pathname);
+
+  try {
+    S.authEmail = S.backend.email ? await S.backend.email() : null;
+    S.me = await S.backend.whoami();
+    if (!S.me) { S.phase = 'blocked'; return render(); }
+
+    const [people, config] = await Promise.all([S.backend.listPeople(), S.backend.getConfig()]);
+    S.people = people;
+    S.weekMode = config?.week_mode || 'weeks';
+    S.mode = S.me.role === 'approver' ? 'assign' : 'mark';
+    recomputeDays();
+    await loadMonth();
+    S.phase = 'board';
+    render();
+    startSync();
+  } catch (e) {
+    S.error = e.message || String(e);
+    S.phase = S.me ? 'board' : 'blocked';
+    render();
+  }
+}
+
+async function loadMonth(silent) {
+  if (!S.days.length) recomputeDays();
+  try {
+    const data = await S.backend.loadRange(iso(S.days[0]), iso(S.days[S.days.length - 1]), monthKey());
+    S.marks = data.marks; S.schedule = data.schedule; S.meta = data.meta;
+    S.lastSync = new Date(); S.error = null;
+  } catch (e) {
+    if (!silent) S.error = e.message || String(e);
+  }
+  if (silent) render();
+}
+
+function startSync() {
+  let t = null;
+  const refresh = () => { clearTimeout(t); t = setTimeout(() => loadMonth(true), 400); };
+  try { S.backend.subscribe(refresh); } catch { /* marad a lekérdezés */ }
+  setInterval(() => { if (!document.hidden) loadMonth(true); }, 45000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadMonth(true); });
+}
+
+async function save(fn) {
+  S.pending++; render();
+  try { await fn(); S.lastSync = new Date(); }
+  catch (e) { toast('Nem sikerült menteni: ' + (e.message || e)); await loadMonth(true); }
+  finally { S.pending--; render(); }
+}
+
+/* ============================================================= műveletek */
+
+function cycleOwnMark(day) {
+  if (isLocked() || !S.me || S.me.can_duty === false) return;
+  setOwnMark(day, CYCLE[(CYCLE.indexOf(markOf(S.me.id, day)) + 1) % CYCLE.length]);
+}
+
+function setOwnMark(day, state) {
+  if (isLocked() || !S.me) return;
+  const bag = (S.marks[S.me.id] ||= {});
+  state ? (bag[day] = state) : delete bag[day];
+  save(() => S.backend.setMark(S.me.id, day, state));
+}
+
+function cycleAssign(day) {
+  const order = [
+    ...roster().filter((p) => markOf(p.id, day) === 'yes'),
+    ...roster().filter((p) => markOf(p.id, day) === 'maybe'),
+    ...roster().filter((p) => !markOf(p.id, day))
+  ];
+  if (!order.length) { toast('Erre a napra mindenki nemet mondott – nyisd meg a napot a kézi kiosztáshoz'); return; }
+  const cur = S.schedule[day] || null;
+  const at = order.findIndex((p) => p.id === cur);
+  const next = at < 0 ? order[0] : (order[at + 1] || null);
+  setAssign(day, next ? next.id : null);
+}
+
+function setAssign(day, personId) {
+  if (isLocked() || !isApprover()) return;
+  personId ? (S.schedule[day] = personId) : delete S.schedule[day];
+  save(() => S.backend.setAssign(day, personId));
+}
+
+function autofill() {
+  const counts = {};
+  roster().forEach((p) => { counts[p.id] = Object.values(S.schedule).filter((x) => x === p.id).length; });
+  const changes = [];
+  let prev = null;
+  for (const d of S.days) {
+    const day = iso(d);
+    if (S.schedule[day]) { prev = S.schedule[day]; continue; }
+    const yes = roster().filter((p) => markOf(p.id, day) === 'yes');
+    const maybe = roster().filter((p) => markOf(p.id, day) === 'maybe');
+    const pool = yes.length ? yes : maybe;
+    if (!pool.length) { prev = null; continue; }
+    const sorted = pool.slice().sort((a, b) => counts[a.id] - counts[b.id]);
+    const pick = sorted.find((p) => p.id !== prev) || sorted[0];
+    S.schedule[day] = pick.id; counts[pick.id]++; prev = pick.id;
+    changes.push([day, pick.id]);
+  }
+  if (!changes.length) { toast('Nincs kitölthető nap'); return; }
+  save(() => S.backend.setAssignMany(changes));
+  toast(`${changes.length} nap kitöltve – nézd át, mielőtt véglegesíted`);
+}
+
+function clearMonth() {
+  const list = S.days.map(iso).filter((d) => S.schedule[d]).map((d) => [d, null]);
+  if (!list.length) return;
+  if (!confirm('Törlöd a hónap teljes beosztását? A jelölések megmaradnak.')) return;
+  list.forEach(([d]) => delete S.schedule[d]);
+  save(() => S.backend.setAssignMany(list));
+}
+
+async function toggleLock(lock) {
+  if (lock) {
+    const empty = S.days.filter((d) => !S.schedule[iso(d)]).length;
+    if (empty && !confirm(`${empty} nap még üres. Így is véglegesíted?`)) return;
+  } else if (!confirm('Feloldod a véglegesítést? Utána mindenki újra tud jelölni.')) return;
+  S.meta = { month: monthKey(), locked: lock, locked_at: lock ? new Date().toISOString() : null, locked_by: S.me.id };
+  await save(() => S.backend.setLock(monthKey(), lock, S.me.id));
+  if (lock) toast('Véglegesítve – a naptárfájl letölthető');
+}
+
+/* =================================================================== ICS */
+
+const icsEsc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;')
+  .replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
+function fold(line) {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 73) return line;
+  let out = '', cur = '', len = 0;
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (len + n > 71) { out += (out ? '\r\n ' : '') + cur; cur = ''; len = 0; }
+    cur += ch; len += n;
+  }
+  return out + (out ? '\r\n ' : '') + cur;
+}
+
+function blocks(personId) {
+  const out = [];
+  let run = null;
+  for (const d of S.days) {
+    const day = iso(d);
+    const p = S.schedule[day] || null;
+    const take = p && (!personId || p === personId);
+    if (take && run && run.person === p && iso(addDays(fromISO(run.end), 1)) === day) run.end = day;
+    else { if (run) out.push(run); run = take ? { person: p, start: day, end: day } : null; }
+  }
+  if (run) out.push(run);
+  return out;
+}
+
+function buildICS(personId) {
+  const list = blocks(personId);
+  const org = approver();
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const label = `${S.cursor.getFullYear()}. ${HU_MONTH[S.cursor.getMonth()]}`;
+  const request = !!org?.email && list.some((b) => byId(b.person)?.email);
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ugyeleti tabla//HU', 'CALSCALE:GREGORIAN',
+             `METHOD:${request ? 'REQUEST' : 'PUBLISH'}`, `X-WR-CALNAME:${icsEsc('Ügyelet – ' + label)}`];
+
+  for (const b of list) {
+    const p = byId(b.person);
+    if (!p) continue;
+    L.push('BEGIN:VEVENT',
+      `UID:ugyelet-${b.start}-${slug(p.name)}@ugyeleti-tabla`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${b.start.replace(/-/g, '')}`,
+      `DTEND;VALUE=DATE:${iso(addDays(fromISO(b.end), 1)).replace(/-/g, '')}`,
+      `SUMMARY:${icsEsc('Ügyelet – ' + p.name)}`,
+      `DESCRIPTION:${icsEsc(`Ügyeleti beosztás, ${label}.` +
+        (S.meta?.locked_at ? ` Véglegesítve: ${huDate(new Date(S.meta.locked_at))}` : '') +
+        (org ? `, ${org.name}.` : '.'))}`,
+      'TRANSP:TRANSPARENT', 'STATUS:CONFIRMED');
+    if (org?.email) L.push(`ORGANIZER;CN=${icsEsc(org.name)}:mailto:${org.email}`);
+    if (p.email) L.push(`ATTENDEE;CN=${icsEsc(p.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${p.email}`);
+    L.push('BEGIN:VALARM', 'TRIGGER:-PT12H', 'ACTION:DISPLAY',
+           `DESCRIPTION:${icsEsc('Holnap ügyelet: ' + p.name)}`, 'END:VALARM', 'END:VEVENT');
+  }
+  L.push('END:VCALENDAR');
+  return L.map(fold).join('\r\n') + '\r\n';
+}
+
+function downloadICS(personId) {
+  const ics = buildICS(personId);
+  if (!ics.includes('BEGIN:VEVENT')) { toast('Nincs mit letölteni'); return; }
+  const p = personId ? byId(personId) : null;
+  const name = `ugyelet-${S.cursor.getFullYear()}-${pad(S.cursor.getMonth() + 1)}${p ? '-' + slug(p.name) : ''}.ics`;
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast('Naptárfájl letöltve');
+}
+
+/* ========================================================= megjelenítés */
+
+function toast(msg) {
+  clearTimeout(S.toastTimer);
+  let t = document.querySelector('.toast');
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  S.toastTimer = setTimeout(() => t.remove(), 3600);
+}
+
+function render() {
+  const app = el('app');
+  if (S.phase === 'loading') { app.innerHTML = `<div class="loading">Belépés…</div>`; return; }
+  if (S.phase === 'signin')  { app.innerHTML = signinScreen(); return; }
+  if (S.phase === 'blocked') { app.innerHTML = blockedScreen(); return; }
+  const focused = document.activeElement?.closest?.('.cell')?.dataset.day;
+  app.innerHTML = boardScreen();
+  if (focused) app.querySelector(`.cell[data-day="${focused}"]`)?.focus();
+  renderDialog();
+}
+
+const GOOGLE_ICON = `<svg class="gicon" viewBox="0 0 48 48" aria-hidden="true">
+<path fill="#4285F4" d="M45 24c0-1.6-.1-2.7-.4-3.9H24v7.1h12c-.2 1.9-1.5 4.7-4.4 6.6l6.7 5.2c4-3.7 6.7-9.1 6.7-15z"/>
+<path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8 40.3 15.4 46 24 46z"/>
+<path fill="#FBBC05" d="M11.5 28.4c-.5-1.4-.7-2.9-.7-4.4s.3-3 .7-4.4l-7.1-5.5C2.9 17 2 20.4 2 24s.9 7 2.4 9.9l7.1-5.5z"/>
+<path fill="#EA4335" d="M24 10.2c4.1 0 6.9 1.8 8.5 3.3l6.2-6C34.9 4 29.9 2 24 2 15.4 2 8 7.7 4.4 14.1l7.1 5.5C13.3 14.3 18.2 10.2 24 10.2z"/></svg>`;
+
+function signinScreen() {
+  if (S.demo) {
+    return `<div class="gate">
+      <h1>Ügyeleti tábla</h1>
+      <p>Bemutató mód: nincs Supabase kapcsolat, ezért a Google-belépés helyett válaszd ki, kinek a szemével nézed. Az adatok az oldal frissítéséig élnek.</p>
+      ${demoPeople()}
+    </div>`;
+  }
+  return `<div class="gate">
+    <h1>Ügyeleti tábla</h1>
+    <p>A belépés Google-fiókkal történik. Csak a névsorban szereplő öt cím tud belépni.</p>
+    ${S.error ? `<div class="blocked">${esc(S.error)}</div>` : ''}
+    <button class="btn btn-primary" data-act="signin">${GOOGLE_ICON} Belépés Google-fiókkal</button>
+  </div>`;
+}
+
+function demoPeople() {
+  return `<div style="text-align:left">${S.people.map((p) => `
+    <button class="opt" data-act="demo-in" data-id="${p.id}" style="--c:${esc(p.color)}">
+      <i></i><span class="nm">${esc(p.name)}</span>
+      <span class="st">${p.role === 'approver' ? 'véglegesítő' : 'ügyelő'}</span>
+    </button>`).join('')}</div>`;
+}
+
+function blockedScreen() {
+  return `<div class="gate">
+    <h1>Nincs hozzáférés</h1>
+    <div class="blocked">
+      A <b>${esc(S.authEmail || 'megadott')}</b> fiók nem szerepel a névsorban, ezért nem látja a beosztást.
+      Ha ez tévedés, ${esc(approver()?.name || 'a véglegesítő')} tudja felvenni a címet.
+    </div>
+    <button class="btn" data-act="signout">Belépés másik fiókkal</button>
+  </div>`;
+}
+
+function boardScreen() {
+  const locked = isLocked();
+  const initial = (S.me.name || '?').trim()[0].toUpperCase();
+
+  return `
+  <div class="top">
+    <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
+    <div class="spacer"></div>
+    <span class="user" title="${esc(S.me.email || '')}">
+      <span class="avatar" style="--c:${esc(S.me.color)}">${esc(initial)}</span>${esc(S.me.name)}
+    </span>
+    ${isApprover() ? '<button class="btn btn-sm btn-quiet" data-act="settings">Névsor</button>' : ''}
+    <button class="btn btn-sm btn-quiet" data-act="signout">Kilépés</button>
+  </div>
+
+  <div class="monthbar">
+    <button class="arrow" data-act="prev" aria-label="Előző hónap">&#8249;</button>
+    <button class="arrow" data-act="next" aria-label="Következő hónap">&#8250;</button>
+    <div class="month"><b>${S.cursor.getFullYear()}.</b> ${HU_MONTH[S.cursor.getMonth()]}</div>
+    <button class="btn btn-sm btn-quiet" data-act="today">Mai hónap</button>
+    <span class="sync">${S.pending ? 'mentés…' : (S.lastSync
+      ? 'frissítve ' + S.lastSync.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }) : '')}
+      <button class="btn btn-sm btn-quiet" data-act="refresh">Frissítés</button></span>
+  </div>
+
+  ${S.error ? `<div class="blocked">${esc(S.error)}</div>` : ''}
+
+  ${locked ? `<div class="locked-note">
+      <b>Véglegesítve.</b> ${S.meta.locked_at ? huDate(new Date(S.meta.locked_at)) + ' –' : ''}
+      ${esc(byId(S.meta.locked_by)?.name || '')} zárta le. A jelölések már nem módosíthatók.
+    </div>` : ''}
+
+  <div class="sheet">
+    <div class="hrow">${DOW_ABBR.map((d, i) => `<div class="${i > 4 ? 'we' : ''}">${d}</div>`).join('')}</div>
+    <div class="grid">${S.days.map(cellHTML).join('')}</div>
+  </div>
+
+  <div class="roster">${rosterHTML()}</div>
+  <div class="legend">
+    <span><i style="background:var(--yes)"></i>ráér</span>
+    <span><i style="background:var(--maybe)"></i>ha muszáj</span>
+    <span><i style="background:var(--no)"></i>nem ér rá</span>
+    <span><i style="background:var(--none)"></i>nem jelölt</span>
+    <span>a négyzetek sorrendje a fenti névsort követi</span>
+  </div>
+
+  ${barHTML()}`;
+}
+
+function cellHTML(d) {
+  const day = iso(d);
+  const inMonth = d.getMonth() === S.cursor.getMonth();
+  const usable = S.weekMode === 'weeks' || inMonth;
+  const person = byId(S.schedule[day]);
+  const mine = S.me ? markOf(S.me.id, day) : null;
+  const today = day === iso(new Date());
+
+  const marks = roster().map((p) => {
+    const st = markOf(p.id, day);
+    return `<i class="mk ${st || ''} ${p.id === S.me.id ? 'me' : ''}"
+      title="${esc(p.name)}: ${st ? STATE_LABEL[st] : 'nem jelölt'}"></i>`;
+  }).join('');
+
+  const cls = ['cell'];
+  if (dowIdx(d) > 4) cls.push('we');
+  if (!usable) cls.push('out');
+  if (today) cls.push('today');
+  if (mine) cls.push('has-mine');
+
+  return `<button class="${cls.join(' ')}" data-day="${day}" ${usable ? '' : 'disabled'}
+      title="${DOW[dowIdx(d)]}, ${huDate(d)}">
+    <span class="date">${d.getDate()}${!inMonth ? `<em>${HU_SHORT[d.getMonth()]}</em>` : ''}</span>
+    ${person ? `<span class="who" style="--c:${esc(person.color)}"><i></i><span>${esc(person.name)}</span></span>` : ''}
+    <span class="marks">${usable ? marks : ''}</span>
+  </button>`;
+}
+
+function rosterHTML() {
+  return roster().map((p, i) => {
+    const n = S.days.filter((d) => S.schedule[iso(d)] === p.id).length;
+    return `<span class="rperson ${p.id === S.me.id ? 'is-me' : ''}">
+      <span class="idx">${i + 1}</span><b>${esc(p.name)}</b>
+      <span class="n">${n} nap</span></span>`;
+  }).join('');
+}
+
+function barHTML() {
+  const locked = isLocked();
+  if (locked) {
+    const mineHas = S.days.some((d) => S.schedule[iso(d)] === S.me.id);
+    return `<div class="bar">
+      <span class="hint">Google Naptár → Beállítások → Importálás és exportálás → Importálás</span>
+      <span class="spacer"></span>
+      ${mineHas ? '<button class="btn btn-sm" data-act="ics" data-id="me">Az én napjaim (.ics)</button>' : ''}
+      <button class="btn btn-sm btn-primary" data-act="ics">Teljes hónap (.ics)</button>
+      ${isApprover() ? '<button class="btn btn-sm btn-quiet" data-act="unlock">Feloldás</button>' : ''}
+    </div>`;
+  }
+
+  if (!isApprover()) {
+    return `<div class="bar">
+      <span class="hint">Kattints egy napra: ráér → ha muszáj → nem ér rá → üres.
+        Hosszú nyomás a nap részleteihez.</span>
+    </div>`;
+  }
+
+  return `<div class="bar">
+    <span class="seg">
+      <button class="${S.mode === 'assign' ? 'on' : ''}" data-act="mode" data-v="assign">Kiosztás</button>
+      <button class="${S.mode === 'mark' ? 'on' : ''}" data-act="mode" data-v="mark">Saját jelölés</button>
+    </span>
+    <button class="btn btn-sm" data-act="autofill">Javaslat kitöltése</button>
+    <button class="btn btn-sm btn-quiet" data-act="clear">Ürítés</button>
+    <span class="spacer"></span>
+    <button class="btn btn-sm btn-primary" data-act="lock">Hónap véglegesítése</button>
+  </div>`;
+}
+
+/* --------------------------------------------------------------- ablakok */
+
+function renderDialog(force) {
+  const root = el('modal-root');
+  if (!S.dialog) { root.innerHTML = ''; return; }
+  if (S.dialog === 'settings' && !force && root.querySelector('.dialog')) return;
+  root.innerHTML = S.dialog === 'settings' ? settingsDialog() : dayDialog();
+}
+
+function dayDialog() {
+  const day = S.dialog.day;
+  const d = fromISO(day);
+  const locked = isLocked();
+  const canMark = !locked && S.me.can_duty !== false;
+  const canAssign = !locked && isApprover();
+
+  const states = canMark ? `
+    <div class="sub">Az én jelölésem</div>
+    <div class="states">
+      ${[['yes', 'Ráér'], ['maybe', 'Ha muszáj'], ['no', 'Nem ér rá'], ['', 'Törlés']].map(([v, l]) => `
+        <button class="btn btn-sm ${(markOf(S.me.id, day) || '') === v ? 'on' : ''}" data-act="mark" data-v="${v}">
+          ${v ? `<i style="background:${STATE_COLOR[v]}"></i>` : ''}${l}</button>`).join('')}
+    </div>` : '';
+
+  const list = roster().map((p) => {
+    const st = markOf(p.id, day);
+    const on = S.schedule[day] === p.id;
+    return `<button class="opt ${on ? 'on' : ''}" data-act="assign" data-id="${p.id}"
+        style="--c:${esc(p.color)}" ${canAssign ? '' : 'disabled'}>
+      <i></i><span class="nm">${esc(p.name)}</span>
+      <span class="st">${st ? `<b style="background:${STATE_COLOR[st]}"></b>${STATE_LABEL[st]}` : 'nem jelölt'}</span>
+    </button>`;
+  }).join('');
+
+  return `<div class="overlay" data-act="close-bg"><div class="dialog" role="dialog" aria-modal="true">
+    <div class="dhead"><h2>${DOW[dowIdx(d)]}, ${huDate(d)}</h2>
+      <button class="x" data-act="close" aria-label="Bezárás">&times;</button></div>
+    <div class="dbody">
+      ${states}
+      <div class="sub">${canAssign ? 'Kire osztod?' : 'Jelölések'}</div>
+      ${list}
+      ${canAssign ? `<button class="opt" data-act="assign" data-id="" style="--c:var(--line)">
+        <i></i><span class="nm">Nincs beosztva</span></button>` : ''}
+    </div>
+  </div></div>`;
+}
+
+function settingsDialog() {
+  const d = S.draft;
+  const row = (p, i) => `
+    <div class="prow">
+      <input type="color" value="${esc(p.color)}" data-f="color" data-i="${i}" aria-label="Szín">
+      <input type="text" value="${esc(p.name)}" data-f="name" data-i="${i}" placeholder="Név">
+      <input type="email" value="${esc(p.email || '')}" data-f="email" data-i="${i}" placeholder="google e-mail cím">
+      <button class="rm" data-act="rm-person" data-i="${i}" aria-label="Törlés">&times;</button>
+    </div>`;
+
+  return `<div class="overlay" data-act="close-bg"><div class="dialog wide" role="dialog" aria-modal="true">
+    <div class="dhead"><h2>Névsor és beállítások</h2>
+      <button class="x" data-act="close" aria-label="Bezárás">&times;</button></div>
+    <div class="dbody">
+      <div class="hintbox">A belépés az itt megadott Google-címekhez van kötve: aki nincs a listán, be sem tud lépni.
+        A módosítás mindenkinél érvényes.</div>
+      ${d.people.map(row).join('')}
+      <button class="btn btn-sm" data-act="add-person">+ Új személy</button>
+
+      <div class="sub">Ki véglegesíthet?</div>
+      <select data-f="approverId">
+        ${d.people.map((p, i) => `<option value="${i}" ${d.approverIdx === i ? 'selected' : ''}>${esc(p.name || '—')}</option>`).join('')}
+      </select>
+
+      <div class="sub">Hónap nézete</div>
+      <select data-f="weekMode">
+        <option value="weeks" ${d.weekMode === 'weeks' ? 'selected' : ''}>Teljes hetek a hónap első hétfőjétől (mint a régi táblázatban)</option>
+        <option value="calendar" ${d.weekMode === 'calendar' ? 'selected' : ''}>Naptári hónap, teljes hetekre kiegészítve</option>
+      </select>
+    </div>
+    <div class="dfoot">
+      <button class="btn btn-quiet" data-act="close">Mégsem</button>
+      <button class="btn btn-primary" data-act="save-settings">Mentés</button>
+    </div>
+  </div></div>`;
+}
+
+function openSettings() {
+  S.draft = {
+    people: S.people.map((p) => ({ ...p })),
+    approverIdx: Math.max(0, S.people.findIndex((p) => p.role === 'approver')),
+    weekMode: S.weekMode,
+    removed: []
+  };
+  S.dialog = 'settings';
+  renderDialog(true);
+}
+
+async function saveSettings() {
+  const d = S.draft;
+  const rows = [];
+  d.people.forEach((p, i) => {
+    if (!p.name.trim() || !p.email?.trim()) { if (S.people.some((q) => q.id === p.id)) d.removed.push(p.id); return; }
+    rows.push({
+      id: p.id, name: p.name.trim(), email: p.email.trim().toLowerCase(),
+      color: p.color, role: i === d.approverIdx ? 'approver' : 'duty',
+      can_duty: p.can_duty !== false, sort_order: i + 1
+    });
+  });
+  if (!rows.some((r) => r.role === 'approver')) { toast('Jelölj ki egy véglegesítőt'); return; }
+  if (rows.length < 2) { toast('Legalább két embert adj meg'); return; }
+  const removed = d.removed.filter((id) => S.people.some((p) => p.id === id));
+  if (removed.length && !confirm('A törölt emberek jelölései és beosztott napjai is elvesznek. Folytatod?')) return;
+
+  try {
+    await S.backend.savePeople(rows, removed);
+    if (d.weekMode !== S.weekMode) { await S.backend.setConfig({ week_mode: d.weekMode }); S.weekMode = d.weekMode; }
+    S.people = await S.backend.listPeople();
+    S.me = await S.backend.whoami() || S.me;
+    if (!byId(S.me.id)) { await S.backend.signOut(); location.reload(); return; }
+    S.dialog = null; S.draft = null;
+    recomputeDays();
+    await loadMonth();
+    render();
+    toast('Mentve');
+  } catch (e) {
+    toast('Nem sikerült menteni: ' + (e.message || e));
+  }
+}
+
+/* =============================================================== események */
+
+function openDay(day) { S.dialog = { day }; renderDialog(); }
+
+function onClick(e) {
+  const bg = e.target.closest('[data-act="close-bg"]');
+  if (bg && e.target === bg) { S.dialog = null; S.draft = null; renderDialog(); return; }
+
+  const btn = e.target.closest('[data-act]');
+  if (btn) {
+    const act = btn.dataset.act, id = btn.dataset.id;
+    switch (act) {
+      case 'signin': S.backend.signIn().catch((err) => { S.error = err.message; render(); }); return;
+      case 'demo-in': demoSignIn(id); return;
+      case 'signout': doSignOut(); return;
+      case 'prev': step(-1); return;
+      case 'next': step(1); return;
+      case 'today': S.cursor = new Date(); recomputeDays(); render(); loadMonth(true); return;
+      case 'refresh': loadMonth(true); return;
+      case 'settings': openSettings(); return;
+      case 'close': S.dialog = null; S.draft = null; renderDialog(); return;
+      case 'mode': S.mode = btn.dataset.v; render(); return;
+      case 'autofill': autofill(); return;
+      case 'clear': clearMonth(); return;
+      case 'lock': toggleLock(true); return;
+      case 'unlock': toggleLock(false); return;
+      case 'ics': downloadICS(id === 'me' ? S.me.id : null); return;
+      case 'add-person':
+        S.draft.people.push({ id: uuid(), name: '', email: '',
+          color: COLORS[S.draft.people.length % COLORS.length], role: 'duty', can_duty: true });
+        renderDialog(true);
+        document.querySelectorAll('[data-f="name"]')[S.draft.people.length - 1]?.focus();
+        return;
+      case 'rm-person': {
+        const p = S.draft.people.splice(Number(btn.dataset.i), 1)[0];
+        if (p) S.draft.removed.push(p.id);
+        if (S.draft.approverIdx >= S.draft.people.length) S.draft.approverIdx = 0;
+        renderDialog(true); return;
+      }
+      case 'save-settings': saveSettings(); return;
+      case 'mark': setOwnMark(S.dialog.day, btn.dataset.v || null); renderDialog(); return;
+      case 'assign': setAssign(S.dialog.day, id || null); S.dialog = null; renderDialog(); return;
+    }
+  }
+
+  const cell = e.target.closest('.cell');
+  if (cell && !cell.disabled && !cell.dataset.lp) {
+    const day = cell.dataset.day;
+    if (isLocked()) return openDay(day);
+    assigning() ? cycleAssign(day) : cycleOwnMark(day);
+  }
+}
+
+function step(n) {
+  S.cursor = new Date(S.cursor.getFullYear(), S.cursor.getMonth() + n, 1);
+  recomputeDays(); render(); loadMonth(true);
+}
+
+async function demoSignIn(id) {
+  await S.backend.signIn(id);
+  S.me = await S.backend.whoami();
+  S.people = await S.backend.listPeople();
+  S.weekMode = (await S.backend.getConfig()).week_mode;
+  S.mode = S.me.role === 'approver' ? 'assign' : 'mark';
+  recomputeDays();
+  await loadMonth();
+  S.phase = 'board';
+  render();
+}
+
+async function doSignOut() {
+  await S.backend.signOut();
+  session.del('sso.tried');
+  if (S.demo) { S.phase = 'signin'; S.me = null; return render(); }
+  location.href = location.origin + location.pathname;
+}
+
+let pressTimer = null, pressCell = null;
+function onPointerDown(e) {
+  const cell = e.target.closest('.cell');
+  if (!cell || cell.disabled) return;
+  pressCell = cell;
+  pressTimer = setTimeout(() => {
+    cell.dataset.lp = '1';
+    openDay(cell.dataset.day);
+    navigator.vibrate?.(10);
+  }, 450);
+}
+function endPress() {
+  clearTimeout(pressTimer);
+  if (pressCell) { const c = pressCell; pressCell = null; setTimeout(() => delete c.dataset.lp, 60); }
+}
+
+function onInput(e) {
+  const f = e.target.dataset.f;
+  if (!f || !S.draft) return;
+  if (f === 'weekMode') { S.draft.weekMode = e.target.value; return; }
+  if (f === 'approverId') { S.draft.approverIdx = Number(e.target.value); return; }
+  const p = S.draft.people[Number(e.target.dataset.i)];
+  if (p) p[f] = e.target.value;
+}
+
+document.addEventListener('click', onClick);
+document.addEventListener('input', onInput);
+document.addEventListener('change', onInput);
+document.addEventListener('pointerdown', onPointerDown);
+document.addEventListener('pointerup', endPress);
+document.addEventListener('pointercancel', endPress);
+document.addEventListener('pointermove', endPress);
+document.addEventListener('contextmenu', (e) => {
+  const cell = e.target.closest('.cell');
+  if (cell && !cell.disabled) { e.preventDefault(); openDay(cell.dataset.day); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && S.dialog) { S.dialog = null; S.draft = null; renderDialog(); return; }
+  if (S.dialog || S.phase !== 'board') return;
+  if (e.key === 'ArrowLeft') step(-1);
+  if (e.key === 'ArrowRight') step(1);
+});
+
+boot();
