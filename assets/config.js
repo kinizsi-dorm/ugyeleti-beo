@@ -8,6 +8,6 @@
    --------------------------------------------------------------- */
 
 window.APP_CONFIG = {
-  SUPABASE_URL: "",
-  SUPABASE_ANON_KEY: ""
+  SUPABASE_URL: "https://eyvvwrsknizygidbiqud.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dnZ3cnNrbml6eWdpZGJpcXVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MTYyNzEsImV4cCI6MjEwMjM5MjI3MX0.Sw6PafA1KZPw26VRoZeGseI0xElfWBf8x5QlAe83O3w"
 };
