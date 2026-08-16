@@ -384,7 +384,7 @@ function cycleAssign(day) {
     ...roster().filter((p) => markOf(p.id, day) === 'maybe'),
     ...roster().filter((p) => !markOf(p.id, day))
   ];
-  if (!order.length) { toast('Erre a napra mindenki nemet mondott – nyisd meg a napot a kézi kiosztáshoz'); return; }
+  if (!order.length) { toast('Erre a napra mindenki nemet mondott – nyisd meg a napot a kézi beosztáshoz'); return; }
   const cur = S.schedule[day] || null;
   const at = order.findIndex((p) => p.id === cur);
   const next = at < 0 ? order[0] : (order[at + 1] || null);
@@ -726,7 +726,7 @@ function cellHTML(d, locked) {
 function toolbarHTML() {
   return `<div class="toolbar">
     ${isApprover() ? `<span class="seg">
-      <button class="${S.mode === 'assign' ? 'on' : ''}" data-act="mode" data-v="assign">Kiosztás</button>
+      <button class="${S.mode === 'assign' ? 'on' : ''}" data-act="mode" data-v="assign">Mindenki beosztása</button>
       <button class="${S.mode === 'mark' ? 'on' : ''}" data-act="mode" data-v="mark">Saját jelölés</button>
     </span>` : ''}
     <div class="roster">${rosterHTML()}</div>
@@ -750,7 +750,7 @@ function rosterHTML() {
 
 function barHTML() {
   const hint = isApprover()
-    ? 'Kiosztás módban a kattintás lépteti az aznapi ügyeletest; a véglegesítés hetenként, a hét fejlécében történik.'
+    ? 'Beosztás módban a kattintás lépteti az aznapi ügyeletest; a véglegesítés hetenként, a hét fejlécében történik.'
     : (canMark()
         ? 'Kattints egy napra: ráér → ha muszáj → nem ér rá → üres. Hosszú nyomás a nap részleteihez.'
         : 'Megtekintő nézet.');
