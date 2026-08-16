@@ -824,9 +824,6 @@ function exportDialog() {
       <button class="x" data-act="close" aria-label="Bezárás">&times;</button></div>
     <div class="dbody">
       ${mine.length ? `
-        <div class="hintbox">A <b>Naptárba</b> gomb megnyitja a Google Naptárat a kész,
-          ${SHIFT_FROM}:00–${SHIFT_TO}:00 közötti eseménnyel; egy koppintás elmenteni.
-          Telefonon is ez a legegyszerűbb út, fájlt nem kell importálni.</div>
         ${mine.map(row).join('')}
         <div class="sub">Fájlként</div>
         <div class="states">
