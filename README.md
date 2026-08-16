@@ -4,13 +4,18 @@ Havi ügyeleti beosztás öt embernek. Mindenki bejelöli, mikor ér rá, Vanda 
 
 Belépés Google-fiókkal. Csak az alábbi öt cím fér hozzá — ezt nem a böngészőben futó kód, hanem az adatbázis szabályai kényszerítik ki, tehát a linket ismerve sem lát bele senki más.
 
-| Név | Google-fiók | Szerep |
-|---|---|---|
-| Vanda | vanda.buri@gmail.com | véglegesítő, ügyeletre is beosztható |
-| Bálint | takacsbalint0202@gmail.com | ügyelő |
-| Peti | ppalotai4@gmail.com | ügyelő |
-| Barbi | barbara.kalanova@gmail.com | ügyelő |
-| Bandi | laandro3@gmail.com | ügyelő |
+| # | Név | Google-fiók | Szerep |
+|---|---|---|---|
+| 1 | Vanda | vanda.buri@gmail.com | véglegesítő, ügyeletre is beosztható |
+| 2 | Bálint | takacsbalint0202@gmail.com | ügyelő |
+| 3 | Peti | ppalotai4@gmail.com | ügyelő |
+| 4 | Barbi | barbara.kalanova@gmail.com | ügyelő |
+| 5 | Bandi | laandro3@gmail.com | ügyelő |
+| – | Viktor | szeker.viktor97@gmail.com | megtekintő |
+
+A bal oldali szám a naptárban is ez lesz: a cellák alján a jelölésnégyzetek ebben a
+sorrendben állnak, a beosztott ember neve előtt is ez a szám látszik. A megtekintő
+nem kap sorszámot, mert nem osztható be.
 
 ---
 
@@ -70,15 +75,19 @@ A Supabase ingyenes csomagján **egy hét tétlenség után szünetel a projekt*
 
 **Megnyitáskor** az oldal magától átdob a Google-belépésre. Utána a fiók e-mail-címe alapján azonosít: nincs névválasztás, nincs jelszó. Ha valaki nem szereplő fiókkal lép be, azt kiírja, és tud másik fiókkal próbálkozni.
 
-**Jelölés (mindenki):** kattints egy napra, a saját jelölésed körbeér: *ráér → ha muszáj → nem ér rá → üres*. A cellák alján lévő öt négyzet a névsor sorrendjében mutatja, ki hogyan jelölt — ugyanaz a logika, mint a régi táblázat oszlopaié, csak egy cellába sűrítve. A sajátodat vastag keret jelöli.
+**Jelölés (ügyelők és a véglegesítő):** kattints egy napra, a saját jelölésed körbeér: *ráér → ha muszáj → nem ér rá → üres*. A cellák alján lévő öt négyzet a névsor sorrendjében mutatja, ki hogyan jelölt — ugyanaz a logika, mint a régi táblázat oszlopaié, csak egy cellába sűrítve. A sajátodat vastag keret jelöli.
+
+**Telefonon** a hét nem hét oszlopra, hanem hét sorra bomlik: naponként egy sor a dátummal, a nap nevével, a beosztott emberrel és a jelölésekkel. Ugyanaz az elrendezés, mint a régi táblázatban, így semmi nem csúszik össze.
+
+**Megtekintő (Viktor):** csak azt látja, ki melyik napra van beosztva. Jelölések, névsorstatisztika, kiosztás és véglegesítés nála meg sem jelenik.
 
 **Kiosztás (Vanda):** a *Kiosztás* módban a kattintás lépteti, ki legyen aznap ügyeletes — először azok jönnek, akik ráérnek, utána a „ha muszáj" jelölésűek. A *Saját jelölés* módra váltva Vanda ugyanúgy tudja jelölni a saját ráéréseit, mint bárki más. A *Javaslat kitöltése* az üres napokat tölti fel a legkevesebb ügyeletet kapóval, kerülve az egymást követő két napot; ez csak javaslat, szabadon átírható.
 
 **Bármelyik nap részletei:** hosszú nyomás (mobilon) vagy jobb klikk. Itt látszik mindenki jelölése névvel, és innen olyan embert is be lehet osztani, aki nemet mondott.
 
-**Véglegesítés:** a *Hónap véglegesítése* lezárja a hónapot, utána senki nem tud jelölni, és megjelenik a letöltés. A *Feloldás* visszavonja.
+**Véglegesítés hetenként:** minden hét külön zárul le, a hét fejlécében lévő *Véglegesítés* gombbal. A lezárt héten senki nem tud jelölni és a beosztás sem módosul, a többi hét viszont nyitva marad. A *Feloldás* visszavonja. A mai naphoz képest **következő hét sárga kiemelést kap**, hogy mindig látszódjon, melyikkel kell foglalkozni.
 
-**Naptár:** a letöltött `.ics` Google Naptárban a *Beállítások → Importálás és exportálás → Importálás* pontnál tölthető be. Az egymást követő ügyeleti napok egy eseménybe kerülnek, minden esemény egész napos, emlékeztetővel az előző nap délre. Mindenki letöltheti csak a saját napjait is.
+**Naptárba küldés:** véglegesítés után a hét fejlécében a *Naptárba* gomb nyílik meg. Itt emberenként egy **Naptárba** gomb van: megnyitja a Google Naptárat a kész, egész napos eseménnyel, és egy koppintás elmenteni. Ez fájl nélkül működik, telefonon is — iPhone-on ez a javasolt út. Ugyanitt letölthető `.ics` fájl is, ami asztali Google Naptárba (*Beállítások → Importálás és exportálás*) és Outlookba importálható. Az egymást követő ügyeleti napok egy eseménybe kerülnek, és van hozzá emlékeztető az előző nap délre.
 
 **Hónap határa:** egy hónap tábláját azok a hetek adják, amelyek hétfője az adott hónapra esik — 2026 januárja így 01.05-től 02.01-ig tart, pontosan úgy, mint a korábbi táblázatban. A Névsor ablakban átváltható naptári hónapra.
 
@@ -93,7 +102,8 @@ A Supabase ingyenes csomagján **egy hét tétlenség után szünetel a projekt*
 | „Nincs hozzáférés" képernyő | A fiók e-mail-címe nincs a `people` táblában. Betűre egyeznie kell. |
 | Üres oldal, hosszú töltés | Szünetel a Supabase projekt: dashboardon *Restore*, és állítsd be az ébren tartást. |
 | A többiek jelölése nem frissül | A valós idejű kapcsolat nem épült fel; 45 másodpercenként és a *Frissítés* gombra így is betölt. |
-| `.ics` nem tölt le | Csak véglegesített hónapra érhető el. |
+| `.ics` nem tölt le | Csak véglegesített hétre érhető el. |
+| iPhone nem nyitja meg az `.ics`-t | Használd helyette a *Naptárba* gombot: az a Google Naptárat nyitja meg kész eseménnyel. |
 
 ## Költség
 
