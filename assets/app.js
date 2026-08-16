@@ -17,6 +17,9 @@ const STATE_COLOR = { yes: 'var(--yes)', maybe: 'var(--maybe)', no: 'var(--no)' 
 const CYCLE = [null, 'yes', 'maybe', 'no'];
 const ROLE_LABEL = { approver: 'véglegesítő', duty: 'ügyelő', viewer: 'megtekintő' };
 
+/* Az ügyelet napi idősávja és a naptár időzónája. Ha változik, elég itt átírni. */
+const SHIFT_FROM = 19, SHIFT_TO = 23, TZ = 'Europe/Budapest';
+
 /* --------------------------------------------------------------- eszközök */
 
 const el = (id) => document.getElementById(id);
@@ -230,6 +233,7 @@ const S = {
   mode: 'assign',             // véglegesítőnek: assign | mark
   marks: {}, schedule: {}, locks: {},
   days: [], pending: 0, lastSync: null,
+  collapsed: {},              // hét → be van-e csukva (alapból a véglegesített)
   dialog: null, draft: null, toastTimer: null
 };
 
@@ -248,6 +252,8 @@ const lockedWeek = (weekISO) => !!S.locks[weekISO]?.locked;
 const dayLocked = (day) => lockedWeek(weekKey(day));
 /** A mai naphoz képest a következő hét hétfője – ez kap kiemelést. */
 const nextWeekKey = () => iso(addDays(mondayOf(today()), 7));
+/** A véglegesített hetek alapból össze vannak csukva. */
+const isCollapsed = (w) => S.collapsed[w] ?? lockedWeek(w);
 
 function recomputeDays() {
   S.days = monthDays(S.cursor.getFullYear(), S.cursor.getMonth(), S.weekMode);
@@ -434,39 +440,39 @@ async function toggleWeekLock(weekISO, lock) {
 
   S.locks[weekISO] = { week: weekISO, locked: lock, locked_at: lock ? new Date().toISOString() : null, locked_by: S.me.id };
   await save(() => S.backend.setLock(weekISO, lock, S.me.id));
-  if (lock) { toast('Hét véglegesítve'); S.dialog = { kind: 'export', week: weekISO }; renderDialog(true); }
+  delete S.collapsed[weekISO];      // visszaáll az alapértelmezésre: zárva = csukva
+  if (lock) toast('Hét véglegesítve – a Naptárba gombbal küldheted el magadnak');
 }
 
 /* ==================================================== naptárba küldés */
 
-/** Egymást követő napok egy eseménnyé vonva, hetenként. */
-function blocksOf(weekISO, personId) {
-  const days = S.days.filter((d) => weekKey(iso(d)) === weekISO).map(iso);
-  const out = [];
-  let run = null;
-  for (const day of days) {
-    const p = S.schedule[day] || null;
-    const take = p && (!personId || p === personId);
-    if (take && run && run.person === p && iso(addDays(fromISO(run.end), 1)) === day) run.end = day;
-    else { if (run) out.push(run); run = take ? { person: p, start: day, end: day } : null; }
-  }
-  if (run) out.push(run);
-  return out;
+/** A hét beosztott napjai. Minden nap külön esemény, mert időpontos. */
+function shiftsOf(weekISO, personId) {
+  return S.days
+    .filter((d) => weekKey(iso(d)) === weekISO)
+    .map(iso)
+    .filter((day) => S.schedule[day] && (!personId || S.schedule[day] === personId))
+    .map((day) => ({ day, person: S.schedule[day] }));
 }
+
+const stampAt = (day, hour) => `${day.replace(/-/g, '')}T${pad(hour)}0000`;
+const shiftText = (day) => {
+  const d = fromISO(day);
+  return `${DOW[dowIdx(d)]}, ${huDate(d)} ${SHIFT_FROM}:00–${SHIFT_TO}:00`;
+};
 
 /**
  * Google Naptár „esemény hozzáadása" link. Fájl nélkül működik, telefonon is:
  * megnyílik a naptár a kitöltött eseménnyel, egy koppintás a mentés.
  */
-function gcalLink(block) {
-  const p = byId(block.person);
-  const start = block.start.replace(/-/g, '');
-  const end = iso(addDays(fromISO(block.end), 1)).replace(/-/g, '');
+function gcalLink(sh) {
+  const p = byId(sh.person);
   const q = new URLSearchParams({
     action: 'TEMPLATE',
     text: `Ügyelet – ${p ? p.name : ''}`,
-    dates: `${start}/${end}`,
-    details: `Ügyeleti beosztás, ${weekLabel(weekKey(block.start))}.`
+    dates: `${stampAt(sh.day, SHIFT_FROM)}/${stampAt(sh.day, SHIFT_TO)}`,
+    ctz: TZ,
+    details: `Ügyeleti beosztás, ${weekLabel(weekKey(sh.day))}.`
   });
   return 'https://calendar.google.com/calendar/render?' + q.toString();
 }
@@ -492,24 +498,32 @@ function fold(line) {
  * egyszerű eseményként hozzáadni.
  */
 function buildICS(weekISO, personId) {
-  const list = blocksOf(weekISO, personId);
+  const list = shiftsOf(weekISO, personId);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ugyeleti tabla//HU',
              'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-             `X-WR-CALNAME:${icsEsc('Ügyelet ' + weekLabel(weekISO))}`];
-  for (const b of list) {
-    const p = byId(b.person);
+             `X-WR-CALNAME:${icsEsc('Ügyelet ' + weekLabel(weekISO))}`,
+             // Az időzóna leírása nélkül egyes naptárak eltolva mutatnák az órákat.
+             'BEGIN:VTIMEZONE', `TZID:${TZ}`, `X-LIC-LOCATION:${TZ}`,
+             'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST',
+             'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+             'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET',
+             'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+             'END:VTIMEZONE'];
+
+  for (const sh of list) {
+    const p = byId(sh.person);
     if (!p) continue;
     L.push('BEGIN:VEVENT',
-      `UID:ugyelet-${b.start}-${slug(p.name)}@ugyeleti-tabla`,
+      `UID:ugyelet-${sh.day}-${slug(p.name)}@ugyeleti-tabla`,
       `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${b.start.replace(/-/g, '')}`,
-      `DTEND;VALUE=DATE:${iso(addDays(fromISO(b.end), 1)).replace(/-/g, '')}`,
+      `DTSTART;TZID=${TZ}:${stampAt(sh.day, SHIFT_FROM)}`,
+      `DTEND;TZID=${TZ}:${stampAt(sh.day, SHIFT_TO)}`,
       `SUMMARY:${icsEsc('Ügyelet – ' + p.name)}`,
       `DESCRIPTION:${icsEsc('Ügyeleti beosztás, ' + weekLabel(weekISO) + '.')}`,
-      'TRANSP:TRANSPARENT', 'STATUS:CONFIRMED',
-      'BEGIN:VALARM', 'TRIGGER:-PT12H', 'ACTION:DISPLAY',
-      `DESCRIPTION:${icsEsc('Holnap ügyelet: ' + p.name)}`, 'END:VALARM',
+      'TRANSP:OPAQUE', 'STATUS:CONFIRMED',
+      'BEGIN:VALARM', 'TRIGGER:-PT2H', 'ACTION:DISPLAY',
+      `DESCRIPTION:${icsEsc('Ma este ügyelet: ' + p.name)}`, 'END:VALARM',
       'END:VEVENT');
   }
   L.push('END:VCALENDAR');
@@ -631,23 +645,18 @@ function boardScreen() {
 
   ${S.error ? `<div class="blocked">${esc(S.error)}</div>` : ''}
 
+  ${viewer ? '' : toolbarHTML()}
+
   <div class="weeks">${weekBlocks().map(weekHTML).join('')}</div>
 
-  ${viewer ? '' : `
-    <div class="roster">${rosterHTML()}</div>
-    <div class="legend">
-      <span><i style="background:var(--yes)"></i>ráér</span>
-      <span><i style="background:var(--maybe)"></i>ha muszáj</span>
-      <span><i style="background:var(--no)"></i>nem ér rá</span>
-      <span><i style="background:var(--none)"></i>nem jelölt</span>
-    </div>
-    ${barHTML()}`}`;
+  ${viewer ? '' : barHTML()}`;
 }
 
 function weekHTML(w) {
   const locked = lockedWeek(w.key);
   const isNext = w.key === nextWeekKey();
   const viewer = isViewer();
+  const closed = isCollapsed(w.key);
   const lock = S.locks[w.key];
   const filled = w.days.filter((d) => S.schedule[iso(d)]).length;
 
@@ -658,19 +667,27 @@ function weekHTML(w) {
         ? `<button class="btn btn-sm btn-quiet" data-act="wfill" data-week="${w.key}">Javaslat</button>
            <button class="btn btn-sm btn-quiet" data-act="wclear" data-week="${w.key}">Ürítés</button>
            <button class="btn btn-sm btn-primary" data-act="lock" data-week="${w.key}">Véglegesítés</button>`
-        : `<span class="wnote">${filled}/7 nap kiosztva</span>`));
+        : ''));
 
-  return `<section class="week ${isNext ? 'is-next' : ''} ${locked ? 'is-locked' : ''}">
+  const body = closed ? '' : `
+    <div class="hrow">${DOW_ABBR.map((d, i) => `<div class="${i > 4 ? 'we' : ''}">${d}</div>`).join('')}</div>
+    <div class="grid">${w.days.map((d) => cellHTML(d, locked)).join('')}</div>`;
+
+  return `<section class="week ${isNext ? 'is-next' : ''} ${locked ? 'is-locked' : ''} ${closed ? 'is-closed' : ''}">
     <header class="whead">
-      <span class="wname">${weekLabel(w.key)}</span>
+      <button class="wtoggle" data-act="toggle-week" data-week="${w.key}"
+          aria-expanded="${!closed}" title="${closed ? 'Kinyitás' : 'Összecsukás'}">
+        <span class="chev" aria-hidden="true">&#9662;</span>
+        <span class="wname">${weekLabel(w.key)}</span>
+      </button>
       ${isNext ? '<span class="tag tag-next">következő hét</span>' : ''}
       ${locked ? `<span class="tag tag-lock">véglegesítve${lock?.locked_by && byId(lock.locked_by)
         ? ' · ' + esc(byId(lock.locked_by).name) : ''}</span>` : ''}
       <span class="spacer"></span>
+      ${viewer ? '' : `<span class="wnote">${filled}/7 nap</span>`}
       ${actions}
     </header>
-    <div class="hrow">${DOW_ABBR.map((d, i) => `<div class="${i > 4 ? 'we' : ''}">${d}</div>`).join('')}</div>
-    <div class="grid">${w.days.map((d) => cellHTML(d, locked)).join('')}</div>
+    ${body}
   </section>`;
 }
 
@@ -705,6 +722,23 @@ function cellHTML(d, locked) {
   </button>`;
 }
 
+/** Fejléc alatti sáv: módváltó, névsor-számok és a színek jelentése. */
+function toolbarHTML() {
+  return `<div class="toolbar">
+    ${isApprover() ? `<span class="seg">
+      <button class="${S.mode === 'assign' ? 'on' : ''}" data-act="mode" data-v="assign">Kiosztás</button>
+      <button class="${S.mode === 'mark' ? 'on' : ''}" data-act="mode" data-v="mark">Saját jelölés</button>
+    </span>` : ''}
+    <div class="roster">${rosterHTML()}</div>
+    <div class="legend">
+      <span><i style="background:var(--yes)"></i>ráér</span>
+      <span><i style="background:var(--maybe)"></i>ha muszáj</span>
+      <span><i style="background:var(--no)"></i>nem ér rá</span>
+      <span><i style="background:var(--none)"></i>nem jelölt</span>
+    </div>
+  </div>`;
+}
+
 function rosterHTML() {
   return roster().map((p, i) => {
     const n = S.days.filter((d) => S.schedule[iso(d)] === p.id).length;
@@ -715,18 +749,12 @@ function rosterHTML() {
 }
 
 function barHTML() {
-  if (!isApprover()) {
-    return `<div class="bar"><span class="hint">${canMark()
-      ? 'Kattints egy napra: ráér → ha muszáj → nem ér rá → üres. Hosszú nyomás a nap részleteihez.'
-      : 'Megtekintő nézet.'}</span></div>`;
-  }
-  return `<div class="bar">
-    <span class="seg">
-      <button class="${S.mode === 'assign' ? 'on' : ''}" data-act="mode" data-v="assign">Kiosztás</button>
-      <button class="${S.mode === 'mark' ? 'on' : ''}" data-act="mode" data-v="mark">Saját jelölés</button>
-    </span>
-    <span class="hint">A véglegesítés hetenként külön történik, a hét fejlécében.</span>
-  </div>`;
+  const hint = isApprover()
+    ? 'Kiosztás módban a kattintás lépteti az aznapi ügyeletest; a véglegesítés hetenként, a hét fejlécében történik.'
+    : (canMark()
+        ? 'Kattints egy napra: ráér → ha muszáj → nem ér rá → üres. Hosszú nyomás a nap részleteihez.'
+        : 'Megtekintő nézet.');
+  return `<div class="bar"><span class="hint">${hint}</span></div>`;
 }
 
 /* ---------------------------------------------------------------- ablakok */
@@ -784,36 +812,29 @@ function dayDialog() {
  */
 function exportDialog() {
   const week = S.dialog.week;
-  const all = blocksOf(week, null);
-  const mine = S.me ? all.filter((b) => b.person === S.me.id) : [];
+  const mine = S.me ? shiftsOf(week, S.me.id) : [];
 
-  const row = (b) => {
-    const p = byId(b.person);
-    const span = b.start === b.end ? huDate(fromISO(b.start))
-      : `${huDate(fromISO(b.start))} – ${huDate(fromISO(b.end))}`;
-    return `<div class="exrow">
-      <b class="badge">${numOf(p.id) ?? '·'}</b>
-      <span class="nm">${esc(p.name)}<em>${span}</em></span>
-      <a class="btn btn-sm btn-primary" href="${gcalLink(b)}" target="_blank" rel="noopener">Naptárba</a>
+  const row = (sh) => `<div class="exrow">
+      <span class="nm">${esc(shiftText(sh.day))}</span>
+      <a class="btn btn-sm btn-primary" href="${gcalLink(sh)}" target="_blank" rel="noopener">Naptárba</a>
     </div>`;
-  };
 
   return `<div class="overlay" data-act="close-bg"><div class="dialog" role="dialog" aria-modal="true">
-    <div class="dhead"><h2>Naptárba – ${weekLabel(week)}</h2>
+    <div class="dhead"><h2>Az én ügyeleteim – ${weekLabel(week)}</h2>
       <button class="x" data-act="close" aria-label="Bezárás">&times;</button></div>
     <div class="dbody">
-      <div class="hintbox">A <b>Naptárba</b> gomb megnyitja a Google Naptárat a kész eseménnyel,
-        egy koppintás menteni. Telefonon is így a legegyszerűbb – fájlt nem kell importálni.</div>
-      ${mine.length ? `<div class="sub">Az én napjaim</div>${mine.map(row).join('')}` : ''}
-      <div class="sub">A teljes hét</div>
-      ${all.length ? all.map(row).join('') : '<p class="small">Erre a hétre nincs beosztott nap.</p>'}
-      <div class="sub">Fájlként</div>
-      <div class="states">
-        <button class="btn btn-sm" data-act="ics" data-week="${week}">Teljes hét (.ics)</button>
-        ${mine.length ? `<button class="btn btn-sm" data-act="ics" data-week="${week}" data-id="me">Csak az enyém (.ics)</button>` : ''}
-      </div>
-      <p class="small">Az .ics fájl asztali Google Naptárba és Outlookba importálható.
-        iPhone-on a Naptárba gomb a megbízhatóbb út.</p>
+      ${mine.length ? `
+        <div class="hintbox">A <b>Naptárba</b> gomb megnyitja a Google Naptárat a kész,
+          ${SHIFT_FROM}:00–${SHIFT_TO}:00 közötti eseménnyel; egy koppintás elmenteni.
+          Telefonon is ez a legegyszerűbb út, fájlt nem kell importálni.</div>
+        ${mine.map(row).join('')}
+        <div class="sub">Fájlként</div>
+        <div class="states">
+          <button class="btn btn-sm" data-act="ics" data-week="${week}">Az én napjaim (.ics)</button>
+        </div>
+        <p class="small">Asztali Google Naptárba és Outlookba importálható.
+          iPhone-on a Naptárba gomb a megbízhatóbb.</p>`
+        : '<p class="small">Ezen a héten nincs ügyeleted.</p>'}
     </div>
   </div></div>`;
 }
@@ -924,7 +945,8 @@ function onClick(e) {
       case 'lock': toggleWeekLock(week, true); return;
       case 'unlock': toggleWeekLock(week, false); return;
       case 'export': S.dialog = { kind: 'export', week }; renderDialog(true); return;
-      case 'ics': downloadICS(week, id === 'me' ? S.me.id : null); return;
+      case 'toggle-week': S.collapsed[week] = !isCollapsed(week); render(); return;
+      case 'ics': downloadICS(week, S.me.id); return;
       case 'add-person':
         S.draft.people.push({ id: uuid(), name: '', email: '', color: '#5F6368', role: 'duty', can_duty: true });
         renderDialog(true);
