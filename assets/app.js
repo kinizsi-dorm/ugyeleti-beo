@@ -5,6 +5,10 @@
    ===================================================================== */
 
 const CFG = window.APP_CONFIG || {};
+const IS_OTP = document.body.dataset.page === 'otp';
+// A repo alkönyvtára GitHub Pagesen és a helyi előnézetben is megmarad.
+const ROOT_URL = new URL(IS_OTP ? '../' : './', location.href);
+let otpView = null;
 
 const HU_MONTH = ['január', 'február', 'március', 'április', 'május', 'június',
                   'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
@@ -71,7 +75,7 @@ function weekLabel(monISO) {
 }
 
 function appUrl() {
-  return location.origin + location.pathname.replace(/index\.html?$/i, '');
+  return new URL(IS_OTP ? 'otp/' : './', ROOT_URL).href;
 }
 
 const session = {
@@ -321,6 +325,22 @@ async function boot() {
     S.me = await S.backend.whoami();
     if (!S.me) { S.phase = 'blocked'; return render(); }
 
+    if (IS_OTP) {
+      S.phase = 'board';
+      render();
+      const { mountOtp } = await import('./otp.js');
+      otpView = mountOtp(el('otp-panel'), S.backend.sb, CFG);
+      S.backend.sb.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT') {
+          otpView?.destroy();
+          S.me = null;
+          S.phase = 'signin';
+          render();
+        }
+      });
+      return;
+    }
+
     const [people, config] = await Promise.all([S.backend.listPeople(), S.backend.getConfig()]);
     S.people = people;
     S.weekMode = config?.week_mode || 'weeks';
@@ -332,7 +352,7 @@ async function boot() {
     startSync();
   } catch (e) {
     S.error = e.message || String(e);
-    S.phase = S.me ? 'board' : 'blocked';
+    S.phase = IS_OTP ? 'signin' : (S.me ? 'board' : 'blocked');
     render();
   }
 }
@@ -560,7 +580,7 @@ function render() {
   if (S.phase === 'signin')  { app.innerHTML = signinScreen(); return; }
   if (S.phase === 'blocked') { app.innerHTML = blockedScreen(); return; }
   const focused = document.activeElement?.closest?.('.cell')?.dataset.day;
-  app.innerHTML = boardScreen();
+  app.innerHTML = IS_OTP ? `${headerHTML()}<main class="otp-main"><section id="otp-panel" class="otp-card" aria-label="Egyszer használatos jelszó"></section></main>` : boardScreen();
   if (focused) app.querySelector(`.cell[data-day="${focused}"]`)?.focus();
   renderDialog();
 }
@@ -617,21 +637,32 @@ function blockedScreen() {
   </div>`;
 }
 
-function boardScreen() {
-  const myNum = numOf(S.me.id);
-  const viewer = isViewer();
-
+function headerHTML() {
+  const myNum = IS_OTP ? null : numOf(S.me.id);
   return `
-  <div class="top">
+  <header class="top">
     <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
     <div class="spacer"></div>
     <span class="user" title="${esc(S.me.email || '')}">
       ${myNum ? `<b class="badge">${myNum}</b>` : ''}${esc(S.me.name)}
       <em>${ROLE_LABEL[S.me.role] || ''}</em>
     </span>
-    ${isApprover() ? '<button class="btn btn-sm btn-quiet" data-act="settings">Névsor</button>' : ''}
+    ${!IS_OTP && isApprover() ? '<button class="btn btn-sm btn-quiet" data-act="settings">Névsor</button>' : ''}
     <button class="btn btn-sm btn-quiet" data-act="signout">Kilépés</button>
-  </div>
+  </header>
+  <nav class="site-nav" aria-label="Fő navigáció">
+    <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_OTP ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg>Beosztás
+    </a>
+    <a class="nav-link" href="${esc(new URL('otp/', ROOT_URL).href)}" ${IS_OTP ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg>OTP
+    </a>
+  </nav>`;
+}
+
+function boardScreen() {
+  const viewer = isViewer();
+  return `${headerHTML()}
 
   <div class="monthbar">
     <button class="arrow" data-act="prev" aria-label="Előző hónap">&#8249;</button>
@@ -980,6 +1011,12 @@ async function demoSignIn(id) {
   S.dialog = null; S.draft = null;
   await S.backend.signIn(id);
   S.me = await S.backend.whoami();
+  if (IS_OTP) {
+    S.phase = 'board';
+    render();
+    el('otp-panel').innerHTML = '<h1>Egyszer használatos jelszó</h1><p class="otp-description">Az OTP éles Supabase-kapcsolattal érhető el.</p>';
+    return;
+  }
   S.people = await S.backend.listPeople();
   S.weekMode = (await S.backend.getConfig()).week_mode;
   S.mode = S.me.role === 'approver' ? 'assign' : 'mark';
@@ -990,6 +1027,7 @@ async function demoSignIn(id) {
 }
 
 async function doSignOut() {
+  otpView?.destroy();
   S.dialog = null; S.draft = null;
   await S.backend.signOut();
   session.del('sso.tried');
@@ -1034,7 +1072,7 @@ document.addEventListener('contextmenu', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && S.dialog) { S.dialog = null; S.draft = null; renderDialog(); return; }
-  if (S.dialog || S.phase !== 'board') return;
+  if (IS_OTP || S.dialog || S.phase !== 'board') return;
   if (e.key === 'ArrowLeft') step(-1);
   if (e.key === 'ArrowRight') step(1);
 });

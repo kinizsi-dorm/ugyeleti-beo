@@ -73,6 +73,74 @@ A Supabase ingyenes csomagján **egy hét tétlenség után szünetel a projekt*
 
 ## Használat
 
+### OTP-aloldal – egyszeri beállítás
+
+A fejléc alatti **Beosztás / OTP** navigáció mindkét oldalon elérhető. Az új oldal címe
+`https://<felhasznalonev>.github.io/ugyeleti-beo/otp/` (a záró perjel nélküli címet
+a GitHub Pages ide irányítja). Jobb felül ugyanaz a bejelentkezett felhasználó látszik.
+A kódra kattintva a hat számjegy szóköz nélkül kerül a vágólapra, a kezdő nullákkal együtt.
+
+**Javasolt tárolás: Supabase → Edge Functions → Secrets.** GitHub Pagesen nincs szerveroldali
+titoktárolás: a JavaScriptbe épített GitHub secret is kiolvasható lenne. Itt csak az aktuális
+kód jut el a böngészőbe, a secret kizárólag az Edge Function környezetében marad.
+Nem szükséges új adatbázistábla vagy a meglévő séma újbóli futtatása.
+
+1. Supabase Dashboard → **Edge Functions → Secrets**: hozz létre egy **`OTP_SECRET`** nevű
+   secretet. Értéke a célrendszer hitelesítő alkalmazáshoz adott **Base32 TOTP-kulcsa** legyen
+   (a QR-kód `otpauth://…` címének `secret` paramétere, nem a teljes cím, és nem egy aktuális kód).
+   A megvalósítás **SHA-1 / 6 számjegy / 30 másodperc** beállítást használ; a célrendszernek
+   ugyanezeket kell használnia. Ugyanazt a közös kódot látja minden engedélyezett felhasználó.
+2. A projekt gyökeréből egyszer telepítsd a mellékelt Edge Functiont (Node.js 22+ szükséges
+   a CLI-hez; bejelentkezéskor a saját Supabase-fiókodat használd):
+
+   ```sh
+   npx supabase login
+   npx supabase functions deploy otp --project-ref eyvvwrsknizygidbiqud
+   ```
+
+   Másik Supabase-projekt esetén cseréld a projektazonosítót a sajátodra.
+   A parancs az `index.ts`, `handler.mjs`, `totp.mjs` fájlokat együtt telepíti.
+   A `supabase/config.toml` kikapcsolja a régi gateway JWT-ellenőrzést; a függvény **maga
+   ellenőrzi a tokent a Supabase Auth szolgáltatásával**, majd a meglévő `whoami` RPC-vel
+   ellenőrzi a névsor-tagságot. Bejelentkezés nélkül és névsoron kívüli fiókkal nincs kód.
+   A névsor összes szerepe, a megtekintő is használhatja az OTP-oldalt.
+3. **Authentication → URL Configuration → Redirect URLs**: a főoldal meglévő címe mellé
+   vedd fel a **teljes OTP-címet is, záró perjellel**, például
+   `https://<felhasznalonev>.github.io/ugyeleti-beo/otp/`.
+   A Google Cloud callback címe változatlan marad.
+4. Pushold a módosított fájlokat a meglévő GitHub Pages ágra. Az `assets/config.js`
+   jelenlegi értékei megfelelőek; **OTP secretet ne írj ebbe a fájlba**.
+   Nincs új deployment Action; az Edge Function későbbi módosításakor ismét a fenti
+   telepítési parancsot futtasd. Az OTP secret cseréjéhez elég a Supabase Secretsben átírni.
+
+**A push önmagában az új felületet teszi közzé.** A működő OTP-hez az első három lépést
+is el kell végezni. Beállítás előtt az oldal érthető hibaüzenetet mutat, nem készít hamis kódot.
+
+A kód a szerver órája alapján készül, automatikusan frissül, és lejáratkor azonnal eltűnik.
+Háttérbe tett lapon nem kérdezgetjük a szervert; visszatéréskor friss kódot kérünk.
+Az OTP nem kerül helyi tárolóba vagy naplóba. A hagyományos TOTP egy időablakon belül
+ugyanazt a kódot adja; az egyszeri felhasználás kikényszerítése a kódot fogadó rendszer feladata.
+
+Ellenőrzés helyben: `node --test tests/otp-server.test.mjs` (Node.js 22+).
+A tesztek nyilvános RFC-tesztkulcsot használnak, éles szolgáltatást nem hívnak.
+
+Opcionális böngészőtesztek (szintén tesztadatokkal):
+
+```sh
+npm install --no-save --package-lock=false playwright
+npx playwright install chromium
+node --test tests/otp-browser.test.cjs
+```
+
+A böngészőteszt a navigációt, másolást, lejáratot, hibakezelést, hozzáférést és a
+mobilos elrendezést ellenőrzi. Képernyőképei a Gitből kizárt `test-results/` mappába kerülnek.
+
+Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets),
+[Edge Function telepítés](https://supabase.com/docs/guides/functions/deploy),
+[RFC 6238 – TOTP](https://www.rfc-editor.org/rfc/rfc6238.html).
+
+### Beosztás
+
 **Megnyitáskor** az oldal magától átdob a Google-belépésre. Utána a fiók e-mail-címe alapján azonosít: nincs névválasztás, nincs jelszó. Ha valaki nem szereplő fiókkal lép be, azt kiírja, és tud másik fiókkal próbálkozni.
 
 **Jelölés (ügyelők és a véglegesítő):** kattints egy napra, a saját jelölésed körbeér: *ráér → ha muszáj → nem ér rá → üres*. A cellák alján lévő öt négyzet a névsor sorrendjében mutatja, ki hogyan jelölt — ugyanaz a logika, mint a régi táblázat oszlopaié, csak egy cellába sűrítve. A sajátodat vastag keret jelöli.

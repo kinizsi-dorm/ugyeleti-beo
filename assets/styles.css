@@ -98,6 +98,41 @@ a { color: inherit; }
 .user { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
 .user em { font-style: normal; color: var(--faint); font-size: 12.5px; }
 
+/* Közös navigáció: a meglévő színek és fejléc változatlanok. */
+.site-nav { display: flex; gap: 5px; padding: 5px; margin-bottom: 20px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--tint); }
+.nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 18px; border-radius: 7px; color: var(--muted); font-weight: 500; text-decoration: none; transition: background .12s; }
+.nav-link:hover { background: var(--hover); }
+.nav-link[aria-current="page"] { background: #fff; color: var(--head); box-shadow: 0 1px 4px #20212412; }
+.nav-link svg, .otp-symbol svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+.otp-main { display: grid; place-items: center; min-height: min(68vh, 680px); padding: 32px 0; }
+.otp-card { width: 100%; max-width: 450px; padding: 32px; text-align: center; border: 1px solid var(--line-soft); border-radius: 18px; box-shadow: 0 8px 32px #20212406; }
+.otp-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto 20px; border-radius: 14px; background: #E8F0FE; color: var(--head); }
+.otp-symbol svg { width: 24px; height: 24px; }
+.otp-card h1 { margin: 0 0 8px; font-size: 21px; font-weight: 600; letter-spacing: -.025em; }
+.otp-description { margin: 0 0 28px; color: var(--muted); }
+.otp-code { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; padding: 23px 10px 18px; border: 1px solid #D2E3FC; border-radius: 12px; background: #F6F9FF; transition: background .15s, border-color .15s; }
+.otp-code:hover:not(:disabled) { background: #E8F0FE; border-color: var(--head); }
+.otp-code:disabled { cursor: default; border-color: var(--line-soft); background: var(--tint); }
+.otp-digits { font-size: clamp(34px, 7vw, 48px); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .07em; color: var(--head); white-space: nowrap; }
+.otp-code:disabled .otp-digits { color: var(--faint); }
+.otp-copy-label { font-size: 12.5px; color: var(--muted); }
+.otp-expiry { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 24px 0 10px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.otp-dot { width: 6px; height: 6px; background: var(--head); border-radius: 50%; }
+.otp-track { height: 3px; overflow: hidden; border-radius: 4px; background: var(--line-soft); }
+.otp-progress { width: 100%; height: 100%; transform: scaleX(0); transform-origin: left; background: var(--head); }
+.otp-expiring .otp-progress, .otp-expiring .otp-dot { background: #C58A00; }
+.otp-status { min-height: 18px; margin: 16px 0 0; font-size: 12px; color: var(--muted); }
+.otp-retry { margin-top: 14px; }
+.otp-retry[hidden] { display: none; }
+.clipboard-fallback { position: fixed; left: -9999px; top: 0; }
+@media (max-width: 700px) {
+  .site-nav { margin-bottom: 16px; }
+  .nav-link { flex: 1; }
+  .otp-main { min-height: 60vh; padding: 20px 0; }
+  .otp-card { padding: 28px 20px; }
+}
+
 .monthbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .month { font-size: 17px; font-weight: 600; }
 .month b { font-weight: 400; color: var(--faint); }

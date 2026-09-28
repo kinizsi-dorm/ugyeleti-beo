@@ -1,0 +1,8 @@
+.env
+.env.*
+supabase/.temp/
+supabase/.branches/
+node_modules/
+test-results/
+preview.html
+preview-otp.html
