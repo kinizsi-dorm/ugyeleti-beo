@@ -6,8 +6,10 @@
 
 const CFG = window.APP_CONFIG || {};
 const IS_OTP = document.body.dataset.page === 'otp';
+const IS_SETTINGS = document.body.dataset.page === 'settings';
+const IS_SUBPAGE = IS_OTP || IS_SETTINGS;
 // A repo alkönyvtára GitHub Pagesen és a helyi előnézetben is megmarad.
-const ROOT_URL = new URL(IS_OTP ? '../' : './', location.href);
+const ROOT_URL = new URL(IS_SUBPAGE ? '../' : './', location.href);
 let otpView = null;
 
 const HU_MONTH = ['január', 'február', 'március', 'április', 'május', 'június',
@@ -19,7 +21,7 @@ const DOW_ABBR = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'];
 const STATE_LABEL = { yes: 'Ráér', maybe: 'Ha muszáj', no: 'Nem ér rá' };
 const STATE_COLOR = { yes: 'var(--yes)', maybe: 'var(--maybe)', no: 'var(--no)' };
 const CYCLE = [null, 'yes', 'maybe', 'no'];
-const ROLE_LABEL = { approver: 'véglegesítő', duty: 'ügyelő', viewer: 'megtekintő' };
+const ROLE_LABEL = { approver: 'véglegesítő', duty: 'ügyelő', admin: 'admin', viewer: 'megtekintő' };
 
 /* Az ügyelet napi idősávja és a naptár időzónája. Ha változik, elég itt átírni. */
 const SHIFT_FROM = 19, SHIFT_TO = 23, TZ = 'Europe/Budapest';
@@ -75,7 +77,7 @@ function weekLabel(monISO) {
 }
 
 function appUrl() {
-  return new URL(IS_OTP ? 'otp/' : './', ROOT_URL).href;
+  return new URL(IS_OTP ? 'otp/' : IS_SETTINGS ? 'settings/' : './', ROOT_URL).href;
 }
 
 const session = {
@@ -171,8 +173,7 @@ async function supabaseBackend(url, key) {
         .select('id,name,email,color,role,can_duty,sort_order').order('sort_order')) || [];
     },
     async savePeople(rows, removed) {
-      if (removed.length) ok(await sb.from('people').delete().in('id', removed));
-      if (rows.length) ok(await sb.from('people').upsert(rows, { onConflict: 'id' }));
+      ok(await sb.rpc('save_roster', { p_people: rows, p_removed: removed }));
     },
     async loadRange(from, to) {
       const [mk, sc, wk] = await Promise.all([
@@ -234,6 +235,7 @@ const S = {
   people: [], me: null,
   cursor: new Date(),
   weekMode: 'weeks',
+  adminView: false, settingsMode: 'weeks', settingsSaving: false,
   mode: 'assign',             // véglegesítőnek: assign | mark
   marks: {}, schedule: {}, locks: {},
   days: [], pending: 0, lastSync: null,
@@ -246,7 +248,9 @@ const byId = (id) => S.people.find((p) => p.id === id) || null;
 const roster = () => S.people.filter((p) => p.role !== 'viewer' && p.can_duty !== false);
 const numOf = (id) => { const i = roster().findIndex((p) => p.id === id); return i < 0 ? null : i + 1; };
 const approver = () => S.people.find((p) => p.role === 'approver') || null;
-const isApprover = () => S.me?.role === 'approver';
+const isAdmin = () => S.me?.role === 'admin';
+const inAdminView = () => isAdmin() && S.adminView;
+const isApprover = () => S.me?.role === 'approver' || inAdminView();
 const isViewer = () => S.me?.role === 'viewer';
 const canMark = () => !!S.me && S.me.role !== 'viewer' && S.me.can_duty !== false;
 const markOf = (pid, day) => S.marks[pid]?.[day] || null;
@@ -324,6 +328,17 @@ async function boot() {
     S.authEmail = S.backend.email ? await S.backend.email() : null;
     S.me = await S.backend.whoami();
     if (!S.me) { S.phase = 'blocked'; return render(); }
+    S.adminView = isAdmin() && session.get(`admin-view.${S.me.id}`) === 'on';
+
+    if (IS_SETTINGS) {
+      if (isAdmin()) {
+        S.weekMode = (await S.backend.getConfig())?.week_mode || 'weeks';
+        S.settingsMode = S.weekMode;
+      }
+      S.phase = 'board';
+      render();
+      return;
+    }
 
     if (IS_OTP) {
       S.phase = 'board';
@@ -344,7 +359,7 @@ async function boot() {
     const [people, config] = await Promise.all([S.backend.listPeople(), S.backend.getConfig()]);
     S.people = people;
     S.weekMode = config?.week_mode || 'weeks';
-    S.mode = S.me.role === 'approver' ? 'assign' : 'mark';
+    S.mode = isApprover() ? 'assign' : 'mark';
     recomputeDays();
     await loadMonth();
     S.phase = 'board';
@@ -352,7 +367,7 @@ async function boot() {
     startSync();
   } catch (e) {
     S.error = e.message || String(e);
-    S.phase = IS_OTP ? 'signin' : (S.me ? 'board' : 'blocked');
+    S.phase = IS_SUBPAGE ? 'signin' : (S.me ? 'board' : 'blocked');
     render();
   }
 }
@@ -419,6 +434,7 @@ function setAssign(day, personId) {
 
 /** Üres napok kitöltése a nyitott hetekben. */
 function autofill(onlyWeek) {
+  if (!isApprover()) return;
   const counts = {};
   roster().forEach((p) => { counts[p.id] = Object.values(S.schedule).filter((x) => x === p.id).length; });
   const changes = [];
@@ -443,6 +459,7 @@ function autofill(onlyWeek) {
 }
 
 function clearWeek(weekISO) {
+  if (!isApprover()) return;
   if (lockedWeek(weekISO)) return;
   const list = S.days.map(iso).filter((d) => weekKey(d) === weekISO && S.schedule[d]).map((d) => [d, null]);
   if (!list.length) return;
@@ -452,6 +469,7 @@ function clearWeek(weekISO) {
 }
 
 async function toggleWeekLock(weekISO, lock) {
+  if (!isApprover()) return;
   const days = S.days.filter((d) => weekKey(iso(d)) === weekISO);
   if (lock) {
     const empty = days.filter((d) => !S.schedule[iso(d)]).length;
@@ -579,6 +597,12 @@ function render() {
   if (S.phase === 'setup')   { app.innerHTML = setupScreen(); return; }
   if (S.phase === 'signin')  { app.innerHTML = signinScreen(); return; }
   if (S.phase === 'blocked') { app.innerHTML = blockedScreen(); return; }
+  if (IS_SETTINGS) { app.innerHTML = headerHTML() + settingsScreen(); return; }
+  // Nézetváltáskor az OTP panel és időzítő életben marad.
+  if (IS_OTP && app.querySelector('#otp-panel')) {
+    app.querySelector('.top').outerHTML = headerHTML();
+    return;
+  }
   const focused = document.activeElement?.closest?.('.cell')?.dataset.day;
   app.innerHTML = IS_OTP ? `${headerHTML()}<main class="otp-main"><section id="otp-panel" class="otp-card" aria-label="Egyszer használatos jelszó"></section></main>` : boardScreen();
   if (focused) app.querySelector(`.cell[data-day="${focused}"]`)?.focus();
@@ -638,25 +662,32 @@ function blockedScreen() {
 }
 
 function headerHTML() {
-  const myNum = IS_OTP ? null : numOf(S.me.id);
+  const myNum = IS_SUBPAGE ? null : numOf(S.me.id);
   return `
-  <header class="top">
+  <header class="top ${isAdmin() ? 'has-admin' : ''} ${inAdminView() ? 'admin-active' : ''}">
     <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
   <nav class="site-nav" aria-label="Fő navigáció">
-    <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_OTP ? 'aria-current="page"' : ''}>
+    <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_SUBPAGE ? 'aria-current="page"' : ''}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg>Beosztás
     </a>
     <a class="nav-link" href="${esc(new URL('otp/', ROOT_URL).href)}" ${IS_OTP ? 'aria-current="page"' : ''}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg>OTP
     </a>
+    ${inAdminView() ? `
+    <span class="nav-link nav-pending" role="link" aria-label="Statisztika hamarosan" aria-disabled="true" title="Statisztika – hamarosan" data-route="${esc(new URL('stats/', ROOT_URL).href)}">Statisztika <small>hamarosan</small></span>
+    <a class="nav-link" href="${esc(new URL('settings/', ROOT_URL).href)}" ${IS_SETTINGS ? 'aria-current="page"' : ''}>Beállítások</a>` : ''}
   </nav>
+    ${isAdmin() ? `<div class="view-toggle" role="group" aria-label="Nézet">
+      <button type="button" data-act="admin-view" data-v="off" aria-pressed="${!inAdminView()}">Ügyelő</button>
+      <button type="button" data-act="admin-view" data-v="on" aria-pressed="${inAdminView()}">Admin</button>
+    </div>` : ''}
     <div class="header-account">
       <span class="user" title="${esc(S.me.name)} · ${esc(S.me.email || '')}">
         ${myNum ? `<b class="badge">${myNum}</b>` : ''}<span class="user-name">${esc(S.me.name)}</span>
-        <em>${ROLE_LABEL[S.me.role] || ''}</em>
+        <em>${isAdmin() ? (inAdminView() ? 'admin' : 'ügyelő') : ROLE_LABEL[S.me.role] || ''}</em>
       </span>
       <div class="header-actions">
-        ${!IS_OTP && isApprover() ? `<button class="btn btn-sm btn-quiet header-action" data-act="settings" aria-label="Névsor" title="Névsor">
+        ${!IS_SUBPAGE && isApprover() ? `<button class="btn btn-sm btn-quiet header-action" data-act="roster" aria-label="Névsor" title="Névsor">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5v1"/></svg><span>Névsor</span>
         </button>` : ''}
         <button class="btn btn-sm btn-quiet header-action" data-act="signout" aria-label="Kilépés" title="Kilépés">
@@ -688,6 +719,49 @@ function boardScreen() {
   <div class="weeks">${weekBlocks().map(weekHTML).join('')}</div>
 
   ${viewer ? '' : barHTML()}`;
+}
+
+function setAdminView(enabled) {
+  if (!isAdmin() || S.settingsSaving) return;
+  S.adminView = enabled;
+  session.set(`admin-view.${S.me.id}`, enabled ? 'on' : 'off');
+  S.mode = enabled ? 'assign' : 'mark';
+  S.dialog = null;
+  S.draft = null;
+  el('modal-root').innerHTML = '';
+  render();
+  document.querySelector(`[data-act="admin-view"][data-v="${enabled ? 'on' : 'off'}"]`)?.focus();
+}
+
+function settingsScreen() {
+  if (!inAdminView()) return `<main class="settings-page">
+    <h1>Beállítások</h1>
+    <p>${isAdmin() ? 'A beállításokhoz válts Admin nézetre a fejlécben.' : 'A beállításokat csak admin módosíthatja.'}</p>
+    <a class="btn" href="${esc(ROOT_URL.href)}">Vissza a beosztáshoz</a>
+  </main>`;
+  return `<main class="settings-page">
+    <h1>Beállítások</h1>
+    <label for="settings-week-mode">Hónap nézete</label>
+    <p class="settings-description" id="settings-week-help">A kiválasztott nézet a teljes csapat beosztását érinti.</p>
+    <select id="settings-week-mode" data-f="settingsWeekMode" aria-describedby="settings-week-help" ${S.settingsSaving ? 'disabled' : ''}>
+      <option value="weeks" ${S.settingsMode === 'weeks' ? 'selected' : ''}>Teljes hetek a hónap első hétfőjétől</option>
+      <option value="calendar" ${S.settingsMode === 'calendar' ? 'selected' : ''}>Naptári hónap, teljes hetekre kiegészítve</option>
+    </select>
+    <div class="settings-actions"><button class="btn btn-primary" data-act="save-settings" ${S.settingsSaving ? 'disabled' : ''}>${S.settingsSaving ? 'Mentés…' : 'Mentés'}</button></div>
+  </main>`;
+}
+
+async function saveAppSettings() {
+  if (!IS_SETTINGS || !inAdminView() || S.settingsSaving) return;
+  if (!['weeks', 'calendar'].includes(S.settingsMode)) return;
+  S.settingsSaving = true;
+  render();
+  try {
+    await S.backend.setConfig({ week_mode: S.settingsMode });
+    S.weekMode = S.settingsMode;
+    toast('Beállítások mentve');
+  } catch (e) { toast('Nem sikerült menteni: ' + (e.message || e)); }
+  finally { S.settingsSaving = false; render(); }
 }
 
 function weekHTML(w) {
@@ -790,9 +864,9 @@ function barHTML() {
   const hint = isApprover()
     ? 'Beosztás módban a kattintás lépteti az aznapi ügyeletest; a véglegesítés hetenként, a hét fejlécében történik.'
     : (canMark()
-        ? 'Kattints egy napra: ráér → ha muszáj → nem ér rá → üres. Hosszú nyomás a nap részleteihez.'
+        ? 'Kattints egy napra: ráér → ha muszáj → nem ér rá → üres.'
         : 'Megtekintő nézet.');
-  return `<div class="bar"><span class="hint">${hint}</span></div>`;
+  return `<div class="bar"><span class="hint">${hint} A nap részletei: gépen jobb kattintás, telefonon hosszú nyomás.</span></div>`;
 }
 
 /* ---------------------------------------------------------------- ablakok */
@@ -800,9 +874,9 @@ function barHTML() {
 function renderDialog(force) {
   const root = el('modal-root');
   if (!S.dialog) { root.innerHTML = ''; return; }
-  if (isViewer() && S.dialog.kind !== 'settings') { S.dialog = null; root.innerHTML = ''; return; }
-  if (S.dialog.kind === 'settings' && !force && root.querySelector('.dialog')) return;
-  root.innerHTML = S.dialog.kind === 'settings' ? settingsDialog()
+  if (isViewer() || (S.dialog.kind === 'roster' && !isApprover())) { S.dialog = null; S.draft = null; root.innerHTML = ''; return; }
+  if (S.dialog.kind === 'roster' && !force && root.querySelector('.dialog')) return;
+  root.innerHTML = S.dialog.kind === 'roster' ? rosterDialog()
     : S.dialog.kind === 'export' ? exportDialog() : dayDialog();
 }
 
@@ -874,56 +948,56 @@ function exportDialog() {
   </div></div>`;
 }
 
-function settingsDialog() {
+function rosterDialog() {
   const d = S.draft;
   const num = (i) => d.people[i].role === 'viewer' ? '·'
     : d.people.filter((q, j) => j < i && q.role !== 'viewer').length + 1;
-  const row = (p, i) => `
+  const row = (p, i) => {
+    const protectedAdmin = p.role === 'admin' && !isAdmin();
+    return `
     <div class="prow">
       <span class="badge">${num(i)}</span>
-      <input type="text" value="${esc(p.name)}" data-f="name" data-i="${i}" placeholder="Név">
-      <input type="email" value="${esc(p.email || '')}" data-f="email" data-i="${i}" placeholder="google e-mail cím">
-      <select data-f="role" data-i="${i}" aria-label="Szerep">
+      <input type="text" value="${esc(p.name)}" data-f="name" data-i="${i}" placeholder="Név" ${protectedAdmin ? 'disabled' : ''}>
+      <input type="email" value="${esc(p.email || '')}" data-f="email" data-i="${i}" placeholder="google e-mail cím" ${protectedAdmin ? 'disabled' : ''}>
+      <select data-f="role" data-i="${i}" aria-label="Szerep" ${protectedAdmin ? 'disabled' : ''}>
         <option value="duty" ${p.role === 'duty' ? 'selected' : ''}>ügyelő</option>
         <option value="approver" ${p.role === 'approver' ? 'selected' : ''}>véglegesítő</option>
         <option value="viewer" ${p.role === 'viewer' ? 'selected' : ''}>megtekintő</option>
+        ${isAdmin() || p.role === 'admin' ? `<option value="admin" ${p.role === 'admin' ? 'selected' : ''}>admin</option>` : ''}
       </select>
-      <button class="rm" data-act="rm-person" data-i="${i}" aria-label="Törlés">&times;</button>
+      <button class="rm" data-act="rm-person" data-i="${i}" aria-label="Törlés" ${protectedAdmin ? 'disabled' : ''}>&times;</button>
     </div>`;
+  };
 
   return `<div class="overlay" data-act="close-bg"><div class="dialog wide" role="dialog" aria-modal="true">
-    <div class="dhead"><h2>Névsor és beállítások</h2>
+    <div class="dhead"><h2>Névsor</h2>
       <button class="x" data-act="close" aria-label="Bezárás">&times;</button></div>
     <div class="dbody">
       <div class="hintbox">A belépés az itt megadott Google-címekhez van kötve: aki nincs a listán,
         be sem tud lépni. A sorrend adja a naptárban látszó sorszámokat.</div>
       ${d.people.map(row).join('')}
       <button class="btn btn-sm" data-act="add-person">+ Új személy</button>
-      <p class="small">Véglegesítőből pontosan egy legyen. A megtekintő csak a kész beosztást látja.</p>
-
-      <div class="sub">Hónap nézete</div>
-      <select data-f="weekMode">
-        <option value="weeks" ${d.weekMode === 'weeks' ? 'selected' : ''}>Teljes hetek a hónap első hétfőjétől</option>
-        <option value="calendar" ${d.weekMode === 'calendar' ? 'selected' : ''}>Naptári hónap, teljes hetekre kiegészítve</option>
-      </select>
     </div>
     <div class="dfoot">
       <button class="btn btn-quiet" data-act="close">Mégsem</button>
-      <button class="btn btn-primary" data-act="save-settings">Mentés</button>
+      <button class="btn btn-primary" data-act="save-roster">Mentés</button>
     </div>
   </div></div>`;
 }
 
-function openSettings() {
-  S.draft = { people: S.people.map((p) => ({ ...p })), weekMode: S.weekMode, removed: [] };
-  S.dialog = { kind: 'settings' };
+function openRoster() {
+  if (!isApprover() || IS_SUBPAGE) return;
+  S.draft = { people: S.people.map((p) => ({ ...p })), removed: [] };
+  S.dialog = { kind: 'roster' };
   renderDialog(true);
 }
 
-async function saveSettings() {
+async function saveRoster() {
+  if (!isApprover() || S.dialog?.kind !== 'roster') return;
   const d = S.draft;
   const rows = [];
   d.people.forEach((p, i) => {
+    if (!isAdmin() && p.role === 'admin') { rows.push({ ...p }); return; }
     if (!p.name.trim() || !p.email?.trim()) { if (S.people.some((q) => q.id === p.id)) d.removed.push(p.id); return; }
     const role = p.role || 'duty';
     rows.push({
@@ -938,10 +1012,11 @@ async function saveSettings() {
 
   try {
     await S.backend.savePeople(rows, removed);
-    if (d.weekMode !== S.weekMode) { await S.backend.setConfig({ week_mode: d.weekMode }); S.weekMode = d.weekMode; }
     S.people = await S.backend.listPeople();
-    S.me = (await S.backend.whoami()) || S.me;
-    if (!byId(S.me.id)) { await S.backend.signOut(); location.reload(); return; }
+    S.me = await S.backend.whoami();
+    if (!S.me) { await S.backend.signOut(); location.reload(); return; }
+    if (!isAdmin()) S.adminView = false;
+    S.mode = isApprover() ? 'assign' : 'mark';
     S.dialog = null; S.draft = null;
     recomputeDays();
     await loadMonth();
@@ -972,9 +1047,11 @@ function onClick(e) {
       case 'next': step(1); return;
       case 'today': S.cursor = new Date(); recomputeDays(); render(); loadMonth(true); return;
       case 'refresh': loadMonth(true); return;
-      case 'settings': openSettings(); return;
+      case 'roster': openRoster(); return;
+      case 'admin-view': setAdminView(btn.dataset.v === 'on'); return;
+      case 'save-settings': saveAppSettings(); return;
       case 'close': S.dialog = null; S.draft = null; renderDialog(); return;
-      case 'mode': S.mode = btn.dataset.v; render(); return;
+      case 'mode': if (isApprover()) { S.mode = btn.dataset.v; render(); } return;
       case 'wfill': autofill(week); return;
       case 'wclear': clearWeek(week); return;
       case 'lock': toggleWeekLock(week, true); return;
@@ -983,16 +1060,19 @@ function onClick(e) {
       case 'toggle-week': S.collapsed[week] = !isCollapsed(week); render(); return;
       case 'ics': downloadICS(week, S.me.id); return;
       case 'add-person':
+        if (!isApprover() || S.dialog?.kind !== 'roster') return;
         S.draft.people.push({ id: uuid(), name: '', email: '', color: '#5F6368', role: 'duty', can_duty: true });
         renderDialog(true);
         document.querySelectorAll('[data-f="name"]')[S.draft.people.length - 1]?.focus();
         return;
       case 'rm-person': {
+        if (!isApprover() || S.dialog?.kind !== 'roster') return;
+        if (!isAdmin() && S.draft.people[Number(btn.dataset.i)]?.role === 'admin') return;
         const p = S.draft.people.splice(Number(btn.dataset.i), 1)[0];
         if (p) S.draft.removed.push(p.id);
         renderDialog(true); return;
       }
-      case 'save-settings': saveSettings(); return;
+      case 'save-roster': saveRoster(); return;
       case 'mark': setOwnMark(S.dialog.day, btn.dataset.v || null); renderDialog(true); return;
       case 'assign': setAssign(S.dialog.day, id || null); S.dialog = null; renderDialog(); return;
     }
@@ -1018,6 +1098,13 @@ async function demoSignIn(id) {
   S.dialog = null; S.draft = null;
   await S.backend.signIn(id);
   S.me = await S.backend.whoami();
+  S.adminView = false;
+  if (IS_SETTINGS) {
+    S.weekMode = (await S.backend.getConfig()).week_mode;
+    S.settingsMode = S.weekMode;
+    S.phase = 'board';
+    return render();
+  }
   if (IS_OTP) {
     S.phase = 'board';
     render();
@@ -1026,7 +1113,7 @@ async function demoSignIn(id) {
   }
   S.people = await S.backend.listPeople();
   S.weekMode = (await S.backend.getConfig()).week_mode;
-  S.mode = S.me.role === 'approver' ? 'assign' : 'mark';
+  S.mode = isApprover() ? 'assign' : 'mark';
   recomputeDays();
   await loadMonth();
   S.phase = 'board';
@@ -1035,6 +1122,8 @@ async function demoSignIn(id) {
 
 async function doSignOut() {
   otpView?.destroy();
+  if (S.me) session.del(`admin-view.${S.me.id}`);
+  S.adminView = false;
   S.dialog = null; S.draft = null;
   await S.backend.signOut();
   session.del('sso.tried');
@@ -1060,8 +1149,8 @@ function endPress() {
 
 function onInput(e) {
   const f = e.target.dataset.f;
+  if (f === 'settingsWeekMode' && inAdminView()) { S.settingsMode = e.target.value; return; }
   if (!f || !S.draft) return;
-  if (f === 'weekMode') { S.draft.weekMode = e.target.value; return; }
   const p = S.draft.people[Number(e.target.dataset.i)];
   if (p) p[f] = e.target.value;
 }
@@ -1079,7 +1168,7 @@ document.addEventListener('contextmenu', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && S.dialog) { S.dialog = null; S.draft = null; renderDialog(); return; }
-  if (IS_OTP || S.dialog || S.phase !== 'board') return;
+  if (IS_SUBPAGE || S.dialog || S.phase !== 'board') return;
   if (e.key === 'ArrowLeft') step(-1);
   if (e.key === 'ArrowRight') step(1);
 });

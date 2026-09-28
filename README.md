@@ -65,6 +65,38 @@ Ez a két érték nyugodtan lehet nyilvános: az anon kulccsal bejelentkezés n�
 
 ## Használat
 
+### Admin szerepkör – meglévő projekt frissítése
+
+1. Supabase Dashboard → **SQL Editor → New query**: másold be a
+   **[supabase/admin-role.sql](supabase/admin-role.sql)** teljes tartalmát, majd **Run**.
+   Ez szükséges az új szerephez, a jogosultságokhoz és a névsor mentéséhez is.
+   A meglévő névsort, jelöléseket és beosztást megtartja; **senkit nem tesz automatikusan adminná**.
+   Új projektnél elég a friss `schema.sql`, amely már tartalmazza ugyanezeket a szabályokat.
+2. Amikor szeretnél admint kijelölni: **Table Editor → people** → a megfelelő személy
+   `role` mezőjét állítsd **`admin`** értékre, a `can_duty` maradjon **true**. Az illető
+   frissítse az oldalt. Az első admint így, a Supabase-ben tudod kijelölni.
+3. **Authentication → URL Configuration → Redirect URLs**: a főoldal és OTP-cím mellé
+   vedd fel a `https://<felhasznalonev>.github.io/ugyeleti-beo/settings/` címet is.
+4. Pushold a módosított fájlokat a GitHub Pages ágra. Az OTP Edge Functiont ehhez a
+   frissítéshez nem kell módosítani vagy újratelepíteni.
+
+Az admin továbbra is beosztható ügyelő, alapból ügyelői nézettel. Csak neki jelenik meg
+a fejléc **Ügyelő / Admin** kapcsolója. **Admin** nézetben ugyanúgy kioszthat, véglegesíthet,
+feloldhat és szerkesztheti a névsort, mint a véglegesítő. A nézetválasztást az adott
+böngészőlapon, felhasználónként megjegyezzük az oldalak közötti navigálásnál; kilépéskor töröljük.
+A kapcsoló a felület nézetét váltja, az adatbázis-jogosultságot mindig a `people.role` adja.
+
+**Adminjogot csak admin adhat és vonhat vissza a felületen.** A véglegesítő ügyelő,
+véglegesítő és megtekintő szerepeket állíthat be; adminfiók adatait nem módosíthatja és
+adminfiókot nem törölhet. Ezeket a szabályokat a szerver is kikényszeríti. A névsor
+mentése egyetlen tranzakció, így hiba esetén a törlések is visszagördülnek. A felületen
+az utolsó admin nem törölheti vagy fokozhatja le önmagát; előbb másik admint kell kijelölnie.
+
+A **Névsor** kizárólag személyeket és szerepeket kezel. A **Hónap nézete** az admin nézetben
+megjelenő külön **Beállítások** fülre (`/ugyeleti-beo/settings/`) került. Ez a teljes csapat
+nézetét befolyásolja; a véglegesítő sem módosíthatja. A **Statisztika** fül egyelőre
+inaktív, „hamarosan” jelzéssel. A tervezett `/ugyeleti-beo/stats/` aloldal még nem készült el.
+
 ### OTP-aloldal – egyszeri beállítás
 
 A fejléc alatti **Beosztás / OTP** navigáció mindkét oldalon elérhető. Az új oldal címe
@@ -154,9 +186,9 @@ Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets)
 
 **Naptárba küldés:** véglegesítés után a hét fejlécében a *Naptárba* gomb nyílik meg. Itt emberenként egy **Naptárba** gomb van: megnyitja a Google Naptárat a kész, egész napos eseménnyel, és egy koppintás elmenteni. Ez fájl nélkül működik, telefonon is — iPhone-on ez a javasolt út. Ugyanitt letölthető `.ics` fájl is, ami asztali Google Naptárba (*Beállítások → Importálás és exportálás*) és Outlookba importálható. Az egymást követő ügyeleti napok egy eseménybe kerülnek, és van hozzá emlékeztető az előző nap délre.
 
-**Hónap határa:** egy hónap tábláját azok a hetek adják, amelyek hétfője az adott hónapra esik — 2026 januárja így 01.05-től 02.01-ig tart, pontosan úgy, mint a korábbi táblázatban. A Névsor ablakban átváltható naptári hónapra.
+**Hónap határa:** egy hónap tábláját azok a hetek adják, amelyek hétfője az adott hónapra esik — 2026 januárja így 01.05-től 02.01-ig tart, pontosan úgy, mint a korábbi táblázatban. Az admin a Beállítások fülön válthat naptári hónapra.
 
-**Névsor:** csak a véglegesítő szerkesztheti. Itt lehet nevet, színt, Google-címet módosítani, embert felvenni vagy törölni, és átadni a véglegesítői szerepet. Új ember felvételekor ne feledd őt tesztfelhasználóként is felvenni a Google Auth Platformon.
+**Névsor:** a véglegesítő és az admin (Admin nézetben) szerkesztheti. Itt lehet nevet, Google-címet és szerepet módosítani, embert felvenni vagy törölni. Adminjogot és adminfiókot csak admin kezelhet. Új ember felvételekor ne feledd őt tesztfelhasználóként is felvenni a Google Auth Platformon.
 
 ## Ha valami nem működik
 

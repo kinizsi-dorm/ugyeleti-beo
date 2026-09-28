@@ -9,7 +9,9 @@ const path = require('node:path');
 let browser, server, origin;
 const root = path.resolve(__dirname, '..');
 const mockClient = `export function createClient() {
-  const member = { id:'test-person', name:'Teszt Elek', email:'test@example.com', role:'duty', sort_order:1, can_duty:true };
+  let member = { id:'test-person', name:'Teszt Elek', email:'test@example.com', role:window.testRole || 'duty', sort_order:1, can_duty:true };
+  let people = [member, {id:'other-person',name:'Másik Ember',email:'other@example.com',role:member.role==='approver'?'duty':'approver',can_duty:true,sort_order:2}];
+  window.testWrites = [];
   const session = { access_token:'test-session' };
   return {
     auth: {
@@ -19,11 +21,19 @@ const mockClient = `export function createClient() {
       signOut: async () => { window.testAuth?.('SIGNED_OUT'); return {}; },
       onAuthStateChange: callback => { window.testAuth = callback; return {}; }
     },
-    rpc: async () => ({data:window.testNonmember ? [] : [member]}),
+    rpc: async (name, args) => {
+      if (name==='save_roster') {
+        window.testWrites.push({table:'people',value:args});
+        people=args.p_people; member=people.find(p=>p.id==='test-person'); return {data:null};
+      }
+      return {data:window.testNonmember ? [] : [member]};
+    },
     from: table => { const query = {
       select:()=>query, order:()=>query, eq:()=>query, gte:()=>query, lte:()=>query,
       maybeSingle:()=>query,
-      then:resolve=>resolve({data:table==='people' ? [member] : table==='app_config' ? {week_mode:'weeks'} : []})
+      upsert:value=>{window.testWrites.push({table,value}); if(table==='app_config') sessionStorage.setItem('test-week-mode',value.week_mode); return query;},
+      delete:()=>query, in:()=>query,
+      then:resolve=>resolve({data:table==='people' ? people : table==='app_config' ? {week_mode:sessionStorage.getItem('test-week-mode') || 'weeks'} : []})
     }; return query; },
     channel: () => { const c={on:()=>c,subscribe:()=>c}; return c; }, removeChannel:()=>{}
   };
@@ -152,4 +162,94 @@ test('clipboard failure gives feedback without a false success', async t => {
   await page.waitForSelector('.otp-code:not(:disabled)');
   await page.locator('.otp-code').click();
   assert.match(await page.locator('.otp-status').textContent(), /nem engedélyezte/);
+});
+
+test('admin starts as duty, switches to approver controls, and back to own marks', async t => {
+  const {page,errors} = await fixture(t,{init:()=>{window.testRole='admin';}});
+  await page.goto(`${origin}/ugyeleti-beo/`);
+  await page.waitForSelector('.weeks');
+  assert.equal(await page.getByRole('button',{name:'Ügyelő',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.getByRole('button',{name:'Névsor',exact:true}).count(),0);
+  await page.locator('.cell').first().click();
+  assert.equal(await page.evaluate(()=>window.testWrites.at(-1).table),'marks');
+  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  assert.ok(await page.getByRole('button',{name:'Mindenki beosztása'}).isVisible());
+  assert.ok(await page.getByRole('button',{name:'Véglegesítés',exact:true}).first().isVisible());
+  assert.equal(await page.getByRole('link',{name:'Statisztika hamarosan'}).getAttribute('aria-disabled'),'true');
+  await page.locator('.cell').first().click();
+  assert.equal(await page.evaluate(()=>window.testWrites.at(-1).table),'schedule');
+  await page.getByRole('button',{name:'Névsor',exact:true}).click();
+  assert.ok(await page.getByRole('heading',{name:'Névsor',exact:true}).isVisible());
+  assert.equal(await page.locator('.dialog').getByText('Hónap nézete').count(),0);
+  assert.equal(await page.locator('.dialog').getByText('Véglegesítőből pontosan egy legyen.',{exact:false}).count(),0);
+  await page.locator('.dialog [data-f="name"]').first().fill('Módosított Név');
+  await page.getByRole('button',{name:'Mentés',exact:true}).click();
+  await page.waitForSelector('.dialog',{state:'detached'});
+  assert.match(await page.locator('.user-name').textContent(),/Módosított Név/);
+  assert.equal(await page.evaluate(()=>window.testWrites.at(-1).table),'people');
+  await page.getByRole('button',{name:'Ügyelő',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Mindenki beosztása'}).count(),0);
+  assert.equal(await page.getByRole('link',{name:'Beállítások',exact:true}).count(),0);
+  assert.match(await page.locator('.bar').textContent(),/jobb kattintás.*hosszú nyomás/);
+  assert.deepEqual(errors,[]);
+});
+
+test('admin settings persist separately; view persists across pages; OTP keeps running on toggle', async t => {
+  const {page,errors} = await fixture(t,{init:()=>{window.testRole='admin';}});
+  await page.goto(`${origin}/ugyeleti-beo/`);
+  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  await page.getByRole('link',{name:'Beállítások',exact:true}).click();
+  assert.equal(new URL(page.url()).pathname,'/ugyeleti-beo/settings/');
+  await page.getByLabel('Hónap nézete').selectOption('calendar');
+  await page.getByRole('button',{name:'Mentés',exact:true}).click();
+  await page.getByText('Beállítások mentve',{exact:true}).waitFor();
+  assert.deepEqual(await page.evaluate(()=>window.testWrites.map(w=>w.table)),['app_config']);
+  await page.reload();
+  assert.equal(await page.getByLabel('Hónap nézete').inputValue(),'calendar');
+  await page.getByRole('link',{name:'OTP',exact:true}).click();
+  await page.waitForSelector('.otp-code:not(:disabled)');
+  await page.getByRole('button',{name:'Ügyelő',exact:true}).click();
+  assert.equal(await page.locator('.otp-code').isEnabled(),true);
+  await page.locator('.otp-code').click();
+  assert.equal(await page.evaluate(()=>window.testCopied),'012345');
+  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  assert.equal(await page.locator('.otp-code').isEnabled(),true);
+  assert.deepEqual(errors,[]);
+});
+
+test('nonadmins cannot enter admin mode or settings; approver keeps roster access', async t => {
+  for (const role of ['duty','approver','viewer']) {
+    const {page} = await fixture(t,{init:new Function(`window.testRole='${role}'; sessionStorage.setItem('admin-view.test-person','on');`)});
+    await page.goto(`${origin}/ugyeleti-beo/`);
+    await page.waitForSelector('.weeks');
+    assert.equal(await page.locator('.view-toggle').count(),0);
+    assert.equal(await page.getByRole('link',{name:'Beállítások',exact:true}).count(),0);
+    if (role==='approver') {
+      await page.getByRole('button',{name:'Névsor',exact:true}).click();
+      assert.equal(await page.locator('.dialog select option[value="admin"]').count(),0);
+      assert.equal(await page.locator('.dialog [data-f="weekMode"]').count(),0);
+    }
+    await page.goto(`${origin}/ugyeleti-beo/settings/`);
+    await page.getByText('A beállításokat csak admin módosíthatja.').waitFor();
+    assert.equal(await page.getByLabel('Hónap nézete').count(),0);
+  }
+});
+
+test('admin header remains usable on narrow screens in both views', async t => {
+  const {page} = await fixture(t,{init:()=>{window.testRole='admin';}});
+  await page.goto(`${origin}/ugyeleti-beo/`);
+  await page.waitForSelector('.weeks');
+  for (const mode of ['Admin','Ügyelő']) {
+    await page.getByRole('button',{name:mode,exact:true}).click();
+    for (const width of [320,375,768,1024,1280]) {
+      await page.setViewportSize({width,height:900});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      assert.ok((await page.locator('.user-name').boundingBox()).width>20);
+    }
+  }
+  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  await fs.mkdir(path.join(root,'test-results'),{recursive:true});
+  await page.screenshot({path:path.join(root,'test-results/admin-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:375,height:812});
+  await page.screenshot({path:path.join(root,'test-results/admin-mobile.png'),fullPage:true});
 });
