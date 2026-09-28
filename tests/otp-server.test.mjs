@@ -1,10 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeBase32, generateTotp } from '../supabase/functions/otp/totp.mjs';
-import { createOtpHandler } from '../supabase/functions/otp/handler.mjs';
+import { decodeBase32, generateTotp, createOtpHandler } from '../supabase/functions/otp/index.ts';
 
 // Nyilvános RFC 6238 tesztkulcs, nem éles secret.
 const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+test('standalone Dashboard file registers its handler in Deno', async () => {
+  let handler;
+  globalThis.Deno = { env: { get: () => undefined }, serve: callback => { handler = callback; } };
+  try {
+    await import('../supabase/functions/otp/index.ts?dashboard-test');
+    assert.equal(typeof handler, 'function');
+    const response = await handler(new Request('https://test.supabase.co/functions/v1/otp', { method: 'POST' }));
+    assert.equal(response.status, 401);
+  } finally {
+    delete globalThis.Deno;
+  }
+});
 const vectors = [[59, '94287082'], [1111111109, '07081804'], [1111111111, '14050471'],
   [1234567890, '89005924'], [2000000000, '69279037'], [20000000000, '65353130']];
 for (const [seconds, expected] of vectors) {

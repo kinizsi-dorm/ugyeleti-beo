@@ -197,18 +197,6 @@ grant execute on function public.whoami(), public.is_member(), public.is_approve
                           public.can_mark(), public.current_person_id() to authenticated;
 
 -- ---------------------------------------------------------------------
--- Ébren tartás
---   Adatot nem ad vissza, de lefuttat egy lekérdezést, így a Supabase
---   nem tekinti tétlennek a projektet.
--- ---------------------------------------------------------------------
-
-create or replace function public.ping()
-returns text language sql security definer set search_path = public
-as $$ select 'ok'::text; $$;
-
-grant execute on function public.ping() to anon, authenticated;
-
--- ---------------------------------------------------------------------
 -- Realtime
 -- ---------------------------------------------------------------------
 

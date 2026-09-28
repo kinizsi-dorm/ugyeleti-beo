@@ -1,6 +1,0 @@
-project_id = "ugyeleti-beo"
-
-[functions.otp]
-# A handler minden kérést az Auth /user végpontján ellenőriz, majd whoami-t hív.
-# Az új JWT signing key-ekkel is működik, nem függ a legacy gateway ellenőrzéstől.
-verify_jwt = false

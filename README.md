@@ -61,14 +61,6 @@ Ez a két érték nyugodtan lehet nyilvános: az anon kulccsal bejelentkezés n�
 2. **Settings → Pages** → *Deploy from a branch* → `main` / `/ (root)` → **Save**.
 3. Pár perc múlva él: `https://<felhasznalonev>.github.io/ugyelet/`. Ez a link megy körbe az ötüknek.
 
-## 4. Ébren tartás
-
-A Supabase ingyenes csomagján **egy hét tétlenség után szünetel a projekt**, és amíg valaki kézzel vissza nem állítja, az oldal nem tölt be. Havonta használt beosztónál ez biztosan bekövetkezne, ezért van a repóban ütemezett feladat, ami háromnaponta lefuttat egy apró lekérdezést.
-
-**Settings → Secrets and variables → Actions** alatt vedd fel ugyanazt a két értéket, mint a `config.js`-ben: `SUPABASE_URL` és `SUPABASE_ANON_KEY`. Utána **Actions** fül → engedélyezés → egyszer **Run workflow** kézzel, hogy lásd, zöld-e.
-
-> A GitHub 60 nap repó-tétlenség után felfüggeszti az ütemezett feladatokat, és erről e-mailt küld. Egy kattintás újraindítani.
-
 ---
 
 ## Használat
@@ -90,17 +82,15 @@ Nem szükséges új adatbázistábla vagy a meglévő séma újbóli futtatása.
    (a QR-kód `otpauth://…` címének `secret` paramétere, nem a teljes cím, és nem egy aktuális kód).
    A megvalósítás **SHA-1 / 6 számjegy / 30 másodperc** beállítást használ; a célrendszernek
    ugyanezeket kell használnia. Ugyanazt a közös kódot látja minden engedélyezett felhasználó.
-2. A projekt gyökeréből egyszer telepítsd a mellékelt Edge Functiont (Node.js 22+ szükséges
-   a CLI-hez; bejelentkezéskor a saját Supabase-fiókodat használd):
-
-   ```sh
-   npx supabase login
-   npx supabase functions deploy otp --project-ref eyvvwrsknizygidbiqud
-   ```
-
-   Másik Supabase-projekt esetén cseréld a projektazonosítót a sajátodra.
-   A parancs az `index.ts`, `handler.mjs`, `totp.mjs` fájlokat együtt telepíti.
-   A `supabase/config.toml` kikapcsolja a régi gateway JWT-ellenőrzést; a függvény **maga
+2. Supabase Dashboard → **Edge Functions → Deploy a new function → Via Editor**.
+   A függvény neve pontosan **`otp`** legyen. A szerkesztő `index.ts` fájljának teljes
+   tartalmát cseréld le a repóban található
+   **[supabase/functions/otp/index.ts](supabase/functions/otp/index.ts)** teljes tartalmára,
+   majd kattints a **Deploy function** gombra. Ez egyetlen önálló fájl: nincs szükség
+   másik fájlra, importra, csomagtelepítésre vagy CLI-re.
+   Ezután az **otp → Details → Function configuration** résznél kapcsold **OFF** állásba
+   a **Verify JWT with legacy secret** kapcsolót, és mentsd a beállítást.
+   Ez csak a régi gateway-ellenőrzést kapcsolja ki; a függvény **maga
    ellenőrzi a tokent a Supabase Auth szolgáltatásával**, majd a meglévő `whoami` RPC-vel
    ellenőrzi a névsor-tagságot. Bejelentkezés nélkül és névsoron kívüli fiókkal nincs kód.
    A névsor összes szerepe, a megtekintő is használhatja az OTP-oldalt.
@@ -110,18 +100,25 @@ Nem szükséges új adatbázistábla vagy a meglévő séma újbóli futtatása.
    A Google Cloud callback címe változatlan marad.
 4. Pushold a módosított fájlokat a meglévő GitHub Pages ágra. Az `assets/config.js`
    jelenlegi értékei megfelelőek; **OTP secretet ne írj ebbe a fájlba**.
-   Nincs új deployment Action; az Edge Function későbbi módosításakor ismét a fenti
-   telepítési parancsot futtasd. Az OTP secret cseréjéhez elég a Supabase Secretsben átírni.
+   Az Edge Function későbbi módosításakor az **otp → Code** böngészős szerkesztőben
+   cseréld a fájl tartalmát, majd **Deploy updates**. Ellenőrizd, hogy a fenti JWT-kapcsoló
+   továbbra is OFF állásban van. Az OTP secret cseréjéhez elég a Supabase Secretsben átírni.
+   Nincs deployment vagy ébren tartó GitHub Action; az üzembe helyezéshez GitHub secret sem kell.
 
 **A push önmagában az új felületet teszi közzé.** A működő OTP-hez az első három lépést
 is el kell végezni. Beállítás előtt az oldal érthető hibaüzenetet mutat, nem készít hamis kódot.
+
+Próbáld ki a weboldalon Google-belépés után az **OTP** menüpontot. A Dashboard tesztelőjének
+alapértelmezett anon vagy service-role kulcsa önmagában nem felhasználói munkamenet:
+azzal a függvény szándékosan `401` választ ad.
 
 A kód a szerver órája alapján készül, automatikusan frissül, és lejáratkor azonnal eltűnik.
 Háttérbe tett lapon nem kérdezgetjük a szervert; visszatéréskor friss kódot kérünk.
 Az OTP nem kerül helyi tárolóba vagy naplóba. A hagyományos TOTP egy időablakon belül
 ugyanazt a kódot adja; az egyszeri felhasználás kikényszerítése a kódot fogadó rendszer feladata.
 
-Ellenőrzés helyben: `node --test tests/otp-server.test.mjs` (Node.js 22+).
+Opcionális fejlesztői ellenőrzés helyben: `node --test tests/otp-server.test.mjs`
+(Node.js 22.18+ vagy 24+). Az üzembe helyezéshez ez nem szükséges.
 A tesztek nyilvános RFC-tesztkulcsot használnak, éles szolgáltatást nem hívnak.
 
 Opcionális böngészőtesztek (szintén tesztadatokkal):
@@ -136,7 +133,7 @@ A böngészőteszt a navigációt, másolást, lejáratot, hibakezelést, hozzá
 mobilos elrendezést ellenőrzi. Képernyőképei a Gitből kizárt `test-results/` mappába kerülnek.
 
 Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets),
-[Edge Function telepítés](https://supabase.com/docs/guides/functions/deploy),
+[Edge Function böngészős szerkesztő](https://supabase.com/docs/guides/functions/quickstart-dashboard),
 [RFC 6238 – TOTP](https://www.rfc-editor.org/rfc/rfc6238.html).
 
 ### Beosztás
@@ -168,7 +165,7 @@ Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets)
 | `redirect_uri_mismatch` | A Google kliensben nem pontosan a Supabase callback URL szerepel, vagy még nem lépett érvénybe. |
 | „Access blocked / nem tesztfelhasználó" | Az adott cím nincs felvéve tesztfelhasználóként a Google Auth Platform → Audience alatt. |
 | „Nincs hozzáférés" képernyő | A fiók e-mail-címe nincs a `people` táblában. Betűre egyeznie kell. |
-| Üres oldal, hosszú töltés | Szünetel a Supabase projekt: dashboardon *Restore*, és állítsd be az ébren tartást. |
+| Üres oldal, hosszú töltés | Ellenőrizd a Supabase projekt állapotát; szünetelés esetén a dashboardon *Restore*. |
 | A többiek jelölése nem frissül | A valós idejű kapcsolat nem épült fel; 45 másodpercenként és a *Frissítés* gombra így is betölt. |
 | `.ics` nem tölt le | Csak véglegesített hétre érhető el. |
 | iPhone nem nyitja meg az `.ics`-t | Használd helyette a *Naptárba* gombot: az a Google Naptárat nyitja meg kész eseménnyel. |
