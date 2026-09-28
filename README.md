@@ -2,21 +2,6 @@
 
 Havi ügyeleti beosztás öt embernek. Mindenki bejelöli, mikor ér rá, Vanda kiosztja a napokat és véglegesíti, utána a kész beosztás letölthető naptárfájlként.
 
-Belépés Google-fiókkal. Csak az alábbi öt cím fér hozzá — ezt nem a böngészőben futó kód, hanem az adatbázis szabályai kényszerítik ki, tehát a linket ismerve sem lát bele senki más.
-
-| # | Név | Google-fiók | Szerep |
-|---|---|---|---|
-| 1 | Vanda | vanda.buri@gmail.com | véglegesítő, ügyeletre is beosztható |
-| 2 | Bálint | takacsbalint0202@gmail.com | ügyelő |
-| 3 | Peti | ppalotai4@gmail.com | ügyelő |
-| 4 | Barbi | barbara.kalanova@gmail.com | ügyelő |
-| 5 | Bandi | laandro3@gmail.com | ügyelő |
-| – | Viktor | szeker.viktor97@gmail.com | megtekintő |
-
-A bal oldali szám a naptárban is ez lesz: a cellák alján a jelölésnégyzetek ebben a
-sorrendben állnak, a beosztott ember neve előtt is ez a szám látszik. A megtekintő
-nem kap sorszámot, mert nem osztható be.
-
 ---
 
 ## ⚠️ Először ezt
