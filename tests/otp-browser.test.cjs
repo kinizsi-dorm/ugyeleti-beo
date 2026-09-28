@@ -21,17 +21,11 @@ const mockClient = `export function createClient() {
       signOut: async () => { window.testAuth?.('SIGNED_OUT'); return {}; },
       onAuthStateChange: callback => { window.testAuth = callback; return {}; }
     },
-    rpc: async (name, args) => {
-      if (name==='save_roster') {
-        window.testWrites.push({table:'people',value:args});
-        people=args.p_people; member=people.find(p=>p.id==='test-person'); return {data:null};
-      }
-      return {data:window.testNonmember ? [] : [member]};
-    },
+    rpc: async () => ({data:window.testNonmember ? [] : [member]}),
     from: table => { const query = {
       select:()=>query, order:()=>query, eq:()=>query, gte:()=>query, lte:()=>query,
       maybeSingle:()=>query,
-      upsert:value=>{window.testWrites.push({table,value}); if(table==='app_config') sessionStorage.setItem('test-week-mode',value.week_mode); return query;},
+      upsert:value=>{window.testWrites.push({table,value}); if(table==='app_config') sessionStorage.setItem('test-week-mode',value.week_mode); if(table==='people') {people=value;member=people.find(p=>p.id==='test-person');} return query;},
       delete:()=>query, in:()=>query,
       then:resolve=>resolve({data:table==='people' ? people : table==='app_config' ? {week_mode:sessionStorage.getItem('test-week-mode') || 'weeks'} : []})
     }; return query; },
@@ -244,6 +238,7 @@ test('admin header remains usable on narrow screens in both views', async t => {
     for (const width of [320,375,768,1024,1280]) {
       await page.setViewportSize({width,height:900});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      if (width<=700) assert.equal(await page.locator('.site-nav').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
       assert.ok((await page.locator('.user-name').boundingBox()).width>20);
     }
   }
@@ -252,4 +247,24 @@ test('admin header remains usable on narrow screens in both views', async t => {
   await page.screenshot({path:path.join(root,'test-results/admin-desktop.png'),fullPage:true});
   await page.setViewportSize({width:375,height:812});
   await page.screenshot({path:path.join(root,'test-results/admin-mobile.png'),fullPage:true});
+});
+
+test('settings login reuses root OAuth callback and returns to settings for admin', async t => {
+  const signedOut = await fixture(t,{init:()=>{window.testRole='admin';window.testSignedOut=true;}});
+  await signedOut.page.goto(`${origin}/ugyeleti-beo/settings/`);
+  await signedOut.page.waitForFunction(()=>window.testRedirect);
+  assert.equal(await signedOut.page.evaluate(()=>window.testRedirect),`${origin}/ugyeleti-beo/`);
+  assert.equal(await signedOut.page.evaluate(()=>sessionStorage.getItem('sso.return-page')),'settings/');
+
+  const callback = await fixture(t,{init:()=>{
+    window.testRole='admin';
+    if (location.pathname==='/ugyeleti-beo/') {
+      sessionStorage.setItem('sso.return-page','settings/');
+      sessionStorage.setItem('admin-view.test-person','on');
+    }
+  }});
+  await callback.page.goto(`${origin}/ugyeleti-beo/`);
+  await callback.page.getByLabel('Hónap nézete').waitFor();
+  assert.equal(new URL(callback.page.url()).pathname,'/ugyeleti-beo/settings/');
+  assert.equal(await callback.page.evaluate(()=>sessionStorage.getItem('sso.return-page')),null);
 });

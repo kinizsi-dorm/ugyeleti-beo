@@ -3,6 +3,7 @@
 supabase/.temp/
 supabase/.branches/
 node_modules/
+.pnpm-store/
 test-results/
 preview.html
 preview-otp.html

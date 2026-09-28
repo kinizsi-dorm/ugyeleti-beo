@@ -162,9 +162,11 @@ async function supabaseBackend(url, key) {
     async email() { return (await sb.auth.getUser()).data.user?.email || null; },
     async whoami() { return ok(await sb.rpc('whoami'))?.[0] || null; },
     async signIn() {
+      // A Beállítások belépése a már engedélyezett főoldali OAuth-címet használja.
+      if (IS_SETTINGS) session.set('sso.return-page', 'settings/');
       ok(await sb.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: appUrl(), queryParams: { prompt: 'select_account' } }
+        options: { redirectTo: IS_SETTINGS ? ROOT_URL.href : appUrl(), queryParams: { prompt: 'select_account' } }
       }));
     },
     async signOut() { await sb.auth.signOut(); },
@@ -173,7 +175,8 @@ async function supabaseBackend(url, key) {
         .select('id,name,email,color,role,can_duty,sort_order').order('sort_order')) || [];
     },
     async savePeople(rows, removed) {
-      ok(await sb.rpc('save_roster', { p_people: rows, p_removed: removed }));
+      if (removed.length) ok(await sb.from('people').delete().in('id', removed));
+      if (rows.length) ok(await sb.from('people').upsert(rows, { onConflict: 'id' }));
     },
     async loadRange(from, to) {
       const [mk, sc, wk] = await Promise.all([
@@ -329,6 +332,10 @@ async function boot() {
     S.me = await S.backend.whoami();
     if (!S.me) { S.phase = 'blocked'; return render(); }
     S.adminView = isAdmin() && session.get(`admin-view.${S.me.id}`) === 'on';
+    if (!IS_SUBPAGE && session.get('sso.return-page') === 'settings/') {
+      session.del('sso.return-page');
+      if (isAdmin()) { location.replace(new URL('settings/', ROOT_URL).href); return; }
+    }
 
     if (IS_SETTINGS) {
       if (isAdmin()) {
@@ -1127,6 +1134,7 @@ async function doSignOut() {
   S.dialog = null; S.draft = null;
   await S.backend.signOut();
   session.del('sso.tried');
+  session.del('sso.return-page');
   if (S.demo) { S.phase = 'signin'; S.me = null; return render(); }
   location.href = appUrl();
 }

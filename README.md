@@ -50,37 +50,32 @@ Ez a két érték nyugodtan lehet nyilvános: az anon kulccsal bejelentkezés n�
 
 ## Használat
 
-### Admin szerepkör – meglévő projekt frissítése
+### Admin szerepkör és nézetváltás
 
-1. Supabase Dashboard → **SQL Editor → New query**: másold be a
-   **[supabase/admin-role.sql](supabase/admin-role.sql)** teljes tartalmát, majd **Run**.
-   Ez szükséges az új szerephez, a jogosultságokhoz és a névsor mentéséhez is.
-   A meglévő névsort, jelöléseket és beosztást megtartja; **senkit nem tesz automatikusan adminná**.
-   Új projektnél elég a friss `schema.sql`, amely már tartalmazza ugyanezeket a szabályokat.
-2. Amikor szeretnél admint kijelölni: **Table Editor → people** → a megfelelő személy
-   `role` mezőjét állítsd **`admin`** értékre, a `can_duty` maradjon **true**. Az illető
-   frissítse az oldalt. Az első admint így, a Supabase-ben tudod kijelölni.
-3. **Authentication → URL Configuration → Redirect URLs**: a főoldal és OTP-cím mellé
-   vedd fel a `https://<felhasznalonev>.github.io/ugyeleti-beo/settings/` címet is.
-4. Pushold a módosított fájlokat a GitHub Pages ágra. Az OTP Edge Functiont ehhez a
-   frissítéshez nem kell módosítani vagy újratelepíteni.
+A kliens a meglévő `people.role` mező **`admin`** értékét kezeli admin szerepkörként.
+Senki nem kap automatikusan adminjogot. A szerepet a Supabase-ben kézzel állítod be;
+a felhasználó ezután frissítse az oldalt. A kliens ugyanazokat az API-hívásokat használja,
+mint korábban; ehhez a módosításhoz nincs mellékelt SQL-frissítés vagy Edge Function-változás.
 
 Az admin továbbra is beosztható ügyelő, alapból ügyelői nézettel. Csak neki jelenik meg
 a fejléc **Ügyelő / Admin** kapcsolója. **Admin** nézetben ugyanúgy kioszthat, véglegesíthet,
 feloldhat és szerkesztheti a névsort, mint a véglegesítő. A nézetválasztást az adott
 böngészőlapon, felhasználónként megjegyezzük az oldalak közötti navigálásnál; kilépéskor töröljük.
-A kapcsoló a felület nézetét váltja, az adatbázis-jogosultságot mindig a `people.role` adja.
+A kapcsoló a felület nézetét váltja, a szerver meglévő jogosultságait nem módosítja.
 
-**Adminjogot csak admin adhat és vonhat vissza a felületen.** A véglegesítő ügyelő,
-véglegesítő és megtekintő szerepeket állíthat be; adminfiók adatait nem módosíthatja és
-adminfiókot nem törölhet. Ezeket a szabályokat a szerver is kikényszeríti. A névsor
-mentése egyetlen tranzakció, így hiba esetén a törlések is visszagördülnek. A felületen
-az utolsó admin nem törölheti vagy fokozhatja le önmagát; előbb másik admint kell kijelölnie.
+**Adminjogot csak admin állíthat be a felületen:** neki jelenik meg az admin opció a
+szerepválasztóban. A véglegesítő ügyelő, véglegesítő és megtekintő szerepeket választhat;
+a meglévő adminfiókok a névsorában csak olvashatók. Ez kliensoldali megjelenítési szabály,
+nem új szerveroldali ellenőrzés.
 
 A **Névsor** kizárólag személyeket és szerepeket kezel. A **Hónap nézete** az admin nézetben
 megjelenő külön **Beállítások** fülre (`/ugyeleti-beo/settings/`) került. Ez a teljes csapat
-nézetét befolyásolja; a véglegesítő sem módosíthatja. A **Statisztika** fül egyelőre
+nézetét befolyásolja; a felületen csak admin módosíthatja. A **Statisztika** fül egyelőre
 inaktív, „hamarosan” jelzéssel. A tervezett `/ugyeleti-beo/stats/` aloldal még nem készült el.
+
+A Beállítások oldalt a bejelentkezett főoldalról nyithatod meg. Közvetlen megnyitáskor
+a Google-belépés a már beállított főoldali visszatérési címet használja, majd admin esetén
+visszavisz a Beállítások oldalra. Új OAuth-visszatérési címet nem szükséges felvenni.
 
 ### OTP-aloldal – egyszeri beállítás
 
