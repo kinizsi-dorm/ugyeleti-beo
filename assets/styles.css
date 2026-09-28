@@ -92,18 +92,22 @@ a { color: inherit; }
 
 /* -------------------------------------------------------------- fejléc */
 
-.top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 14px; }
-.brand { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.top { display: flex; align-items: center; gap: 14px; padding: 5px 10px; margin-bottom: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--tint); }
+.brand { flex: none; font-size: 16px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
 .brand span { color: var(--faint); font-weight: 400; }
-.user { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
-.user em { font-style: normal; color: var(--faint); font-size: 12.5px; }
+.header-account { display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; }
+.header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.header-action svg { display: none; }
+.user { display: inline-flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; }
+.user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user em { flex: none; font-style: normal; color: var(--faint); font-size: 12.5px; white-space: nowrap; }
 
-/* Közös navigáció: a meglévő színek és fejléc változatlanok. */
-.site-nav { display: flex; gap: 5px; padding: 5px; margin-bottom: 20px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--tint); }
+/* Egyetlen közös sáv, a korábbi navigáció színeivel és aktív gombjával. */
+.site-nav { display: flex; flex: none; gap: 5px; }
 .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 18px; border-radius: 7px; color: var(--muted); font-weight: 500; text-decoration: none; transition: background .12s; }
 .nav-link:hover { background: var(--hover); }
 .nav-link[aria-current="page"] { background: #fff; color: var(--head); box-shadow: 0 1px 4px #20212412; }
-.nav-link svg, .otp-symbol svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.nav-link svg, .otp-symbol svg, .header-action svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
 .otp-main { display: grid; place-items: center; min-height: min(68vh, 680px); padding: 32px 0; }
 .otp-card { width: 100%; max-width: 450px; padding: 32px; text-align: center; border: 1px solid var(--line-soft); border-radius: 18px; box-shadow: 0 8px 32px #20212406; }
@@ -127,8 +131,6 @@ a { color: inherit; }
 .otp-retry[hidden] { display: none; }
 .clipboard-fallback { position: fixed; left: -9999px; top: 0; }
 @media (max-width: 700px) {
-  .site-nav { margin-bottom: 16px; }
-  .nav-link { flex: 1; }
   .otp-main { min-height: 60vh; padding: 20px 0; }
   .otp-card { padding: 28px 20px; }
 }
@@ -329,9 +331,18 @@ input:focus, select:focus { border-color: var(--head); outline: none; }
 
 @media (max-width: 700px) {
   .app { padding: 14px 10px 40px; }
-  .top { gap: 8px; padding-bottom: 10px; }
-  .brand { font-size: 15px; }
-  .user em { display: none; }
+  .top { gap: 5px; padding: 4px; margin-bottom: 10px; }
+  /* A mobilos sávban a navigáció és a fiók kapja a helyet. */
+  .top .brand { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .site-nav { gap: 2px; }
+  .nav-link { gap: 6px; min-height: 40px; padding: 0 6px; font-size: 13px; }
+  .nav-link svg { width: 16px; height: 16px; }
+  .header-account { gap: 4px; }
+  .top .user { font-size: 13px; }
+  .top .user em, .top .user .badge { display: none; }
+  .header-action { width: 36px; height: 40px; padding: 0; }
+  .header-action svg { display: block; }
+  .header-action span { display: none; }
   .monthbar { gap: 6px; margin-bottom: 10px; }
   .month { font-size: 16px; }
   .sync { width: 100%; margin-left: 0; justify-content: flex-end; }

@@ -642,14 +642,6 @@ function headerHTML() {
   return `
   <header class="top">
     <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
-    <div class="spacer"></div>
-    <span class="user" title="${esc(S.me.email || '')}">
-      ${myNum ? `<b class="badge">${myNum}</b>` : ''}${esc(S.me.name)}
-      <em>${ROLE_LABEL[S.me.role] || ''}</em>
-    </span>
-    ${!IS_OTP && isApprover() ? '<button class="btn btn-sm btn-quiet" data-act="settings">Névsor</button>' : ''}
-    <button class="btn btn-sm btn-quiet" data-act="signout">Kilépés</button>
-  </header>
   <nav class="site-nav" aria-label="Fő navigáció">
     <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_OTP ? 'aria-current="page"' : ''}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg>Beosztás
@@ -657,7 +649,22 @@ function headerHTML() {
     <a class="nav-link" href="${esc(new URL('otp/', ROOT_URL).href)}" ${IS_OTP ? 'aria-current="page"' : ''}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg>OTP
     </a>
-  </nav>`;
+  </nav>
+    <div class="header-account">
+      <span class="user" title="${esc(S.me.name)} · ${esc(S.me.email || '')}">
+        ${myNum ? `<b class="badge">${myNum}</b>` : ''}<span class="user-name">${esc(S.me.name)}</span>
+        <em>${ROLE_LABEL[S.me.role] || ''}</em>
+      </span>
+      <div class="header-actions">
+        ${!IS_OTP && isApprover() ? `<button class="btn btn-sm btn-quiet header-action" data-act="settings" aria-label="Névsor" title="Névsor">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5v1"/></svg><span>Névsor</span>
+        </button>` : ''}
+        <button class="btn btn-sm btn-quiet header-action" data-act="signout" aria-label="Kilépés" title="Kilépés">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v16h5M10 12h11M17 8l4 4-4 4"/></svg><span>Kilépés</span>
+        </button>
+      </div>
+    </div>
+  </header>`;
 }
 
 function boardScreen() {
