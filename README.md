@@ -170,6 +170,21 @@ Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets)
 
 **Névsor:** a véglegesítő és az admin (Admin nézetben) szerkesztheti. Itt lehet nevet, Google-címet és szerepet módosítani, embert felvenni vagy törölni. Adminjogot és adminfiókot csak admin kezelhet. Új ember felvételekor ne feledd őt tesztfelhasználóként is felvenni a Google Auth Platformon.
 
+### Statisztika
+
+A Supabase Dashboard **SQL Editor** felületén egyszer futtasd le a
+[`supabase/stats.sql`](supabase/stats.sql) teljes tartalmát. Utána a forrásokat
+GitHubra feltöltve a **Stat** menüpont az `/ugyeleti-beo/stats/` oldalra vezet.
+A menüpont az admin nézetben jelenik meg. Nincs szükség új OAuth-visszatérési címre.
+
+Az oldal egyszer hívja a `get_stats` adatbázis-függvényt. Az időszak és az ember
+szűrése a letöltött heti összesítéseken történik, további kérés nélkül.
+Csak a `weeks.locked = true` hetek és a jelenlegi nem megtekintő névsor szerepelnek.
+Új lezárás vagy feloldás az oldal következő betöltésekor kerül a statisztikába.
+A heti jelölési átlag minden választ számol, a „Nem ér rá” jelölést is.
+A jelöletlen napok személy–nap párok; a névsorba kerülés előtti üres napok kimaradnak.
+A történeti névsor hiányában az aktuális névsor alapján készül az összesítés.
+
 ## Ha valami nem működik
 
 | Tünet | Ok |

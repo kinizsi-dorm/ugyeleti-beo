@@ -7,10 +7,12 @@
 const CFG = window.APP_CONFIG || {};
 const IS_OTP = document.body.dataset.page === 'otp';
 const IS_SETTINGS = document.body.dataset.page === 'settings';
-const IS_SUBPAGE = IS_OTP || IS_SETTINGS;
+const IS_STATS = document.body.dataset.page === 'stats';
+const IS_SUBPAGE = IS_OTP || IS_SETTINGS || IS_STATS;
 // A repo alkönyvtára GitHub Pagesen és a helyi előnézetben is megmarad.
 const ROOT_URL = new URL(IS_SUBPAGE ? '../' : './', location.href);
 let otpView = null;
+let statsView = null;
 
 const HU_MONTH = ['január', 'február', 'március', 'április', 'május', 'június',
                   'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
@@ -77,7 +79,7 @@ function weekLabel(monISO) {
 }
 
 function appUrl() {
-  return new URL(IS_OTP ? 'otp/' : IS_SETTINGS ? 'settings/' : './', ROOT_URL).href;
+  return new URL(IS_OTP ? 'otp/' : IS_SETTINGS ? 'settings/' : IS_STATS ? 'stats/' : './', ROOT_URL).href;
 }
 
 const session = {
@@ -162,11 +164,11 @@ async function supabaseBackend(url, key) {
     async email() { return (await sb.auth.getUser()).data.user?.email || null; },
     async whoami() { return ok(await sb.rpc('whoami'))?.[0] || null; },
     async signIn() {
-      // A Beállítások belépése a már engedélyezett főoldali OAuth-címet használja.
-      if (IS_SETTINGS) session.set('sso.return-page', 'settings/');
+      // Ezek az aloldalak a már engedélyezett főoldali OAuth-címet használják.
+      if (IS_SETTINGS || IS_STATS) session.set('sso.return-page', IS_STATS ? 'stats/' : 'settings/');
       ok(await sb.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: IS_SETTINGS ? ROOT_URL.href : appUrl(), queryParams: { prompt: 'select_account' } }
+        options: { redirectTo: IS_SETTINGS || IS_STATS ? ROOT_URL.href : appUrl(), queryParams: { prompt: 'select_account' } }
       }));
     },
     async signOut() { await sb.auth.signOut(); },
@@ -332,10 +334,13 @@ async function boot() {
     S.me = await S.backend.whoami();
     if (!S.me) { S.phase = 'blocked'; return render(); }
     S.adminView = isAdmin() && session.get(`admin-view.${S.me.id}`) === 'on';
-    if (!IS_SUBPAGE && session.get('sso.return-page') === 'settings/') {
+    const returnPage = session.get('sso.return-page');
+    if (!IS_SUBPAGE && ['settings/', 'stats/'].includes(returnPage)) {
       session.del('sso.return-page');
-      if (isAdmin()) { location.replace(new URL('settings/', ROOT_URL).href); return; }
+      if (returnPage === 'stats/' || isAdmin()) { location.replace(new URL(returnPage, ROOT_URL).href); return; }
     }
+
+    if (IS_STATS) { await startStats(); return; }
 
     if (IS_SETTINGS) {
       if (isAdmin()) {
@@ -378,6 +383,26 @@ async function boot() {
     S.phase = IS_SUBPAGE ? 'signin' : (S.me ? 'board' : 'blocked');
     render();
   }
+}
+
+async function startStats() {
+  S.phase = 'board';
+  render();
+  const { mountStats } = await import('./stats.js');
+  statsView = mountStats(el('stats-panel'), async () => {
+    if (S.demo) return { people: [], weeks: [], rows: [] };
+    const { data, error } = await S.backend.sb.rpc('get_stats');
+    if (error) throw new Error(error.message);
+    return data;
+  });
+  S.backend.sb?.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') {
+      statsView?.destroy();
+      S.me = null;
+      S.phase = 'signin';
+      render();
+    }
+  });
 }
 
 async function loadMonth(silent) {
@@ -605,6 +630,11 @@ function render() {
   if (S.phase === 'setup')   { app.innerHTML = setupScreen(); return; }
   if (S.phase === 'signin')  { app.innerHTML = signinScreen(); return; }
   if (S.phase === 'blocked') { app.innerHTML = blockedScreen(); return; }
+  if (IS_STATS) {
+    if (app.querySelector('#stats-panel')) app.querySelector('.top').outerHTML = headerHTML();
+    else app.innerHTML = `${headerHTML()}<main id="stats-panel" class="stats-page" aria-label="Statisztika"><p class="loading">Statisztika betöltése…</p></main>`;
+    return;
+  }
   if (IS_SETTINGS) { app.innerHTML = headerHTML() + settingsScreen(); return; }
   // Nézetváltáskor az OTP panel és időzítő életben marad.
   if (IS_OTP && app.querySelector('#otp-panel')) {
@@ -707,7 +737,7 @@ function headerHTML() {
     </a>
     ${rosterNav}
     ${inAdminView() ? `
-    <span class="nav-link nav-pending" role="link" aria-label="Statisztika hamarosan" aria-disabled="true" title="Statisztika – hamarosan" data-route="${esc(new URL('stats/', ROOT_URL).href)}">${headerIcon('chart')}<span>Stat</span></span>
+    <a class="nav-link" href="${esc(new URL('stats/', ROOT_URL).href)}" ${IS_STATS ? 'aria-current="page"' : ''}>${headerIcon('chart')}<span>Stat</span></a>
     <a class="nav-link" href="${esc(new URL('settings/', ROOT_URL).href)}" ${IS_SETTINGS ? 'aria-current="page"' : ''}>${headerIcon('settings')}<span>Beállítások</span></a>` : ''}
   </nav>
     <div class="header-account">
@@ -1132,6 +1162,7 @@ async function demoSignIn(id) {
   await S.backend.signIn(id);
   S.me = await S.backend.whoami();
   S.adminView = false;
+  if (IS_STATS) { await startStats(); return; }
   if (IS_SETTINGS) {
     S.weekMode = (await S.backend.getConfig()).week_mode;
     S.settingsMode = S.weekMode;
@@ -1155,6 +1186,7 @@ async function demoSignIn(id) {
 
 async function doSignOut() {
   otpView?.destroy();
+  statsView?.destroy();
   if (S.me) session.del(`admin-view.${S.me.id}`);
   S.adminView = false;
   S.dialog = null; S.draft = null;
