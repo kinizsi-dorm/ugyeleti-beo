@@ -93,25 +93,15 @@ a { color: inherit; }
 /* -------------------------------------------------------------- fejléc */
 
 .top { display: flex; align-items: center; gap: 14px; padding: 5px 10px; margin-bottom: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--tint); }
-.brand { flex: none; font-size: 16px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
-.brand span { color: var(--faint); font-weight: 400; }
 .header-account { display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; }
 .header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .header-action svg { display: none; }
 .user { display: inline-flex; align-items: center; gap: 7px; min-width: 0; font-size: 13.5px; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.role-icon { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; border: 1px solid transparent; border-radius: 9px; color: var(--muted); }
-.role-switch { position: relative; border-color: var(--line-soft); background: #fff; transition: background .18s, color .18s, border-color .18s; }
-.role-switch::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--head); }
-.role-switch:hover { background: #E8F0FE; border-color: #D2E3FC; color: var(--head); }
-.role-switch[aria-pressed="true"] { background: #E8F0FE; border-color: #D2E3FC; color: #174EA6; }
-.role-icon[data-role="approver"] { color: var(--lock-ink); }
-.role-changed svg { animation: role-change .28s ease-out; }
-@keyframes role-change {
-  0% { opacity: .4; transform: scale(.8) rotate(-12deg); }
-  65% { opacity: 1; transform: scale(1.1) rotate(3deg); }
-  100% { transform: scale(1) rotate(0); }
-}
+.role-icon { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--muted); cursor: default; }
+.role-switch { cursor: pointer; }
+.role-switch:hover { background: var(--hover); border-color: var(--faint); }
+.role-switch:focus-visible { outline-color: var(--muted); }
 
 /* Egyetlen közös sáv, a korábbi navigáció színeivel és aktív gombjával. */
 .site-nav { display: flex; flex: none; gap: 5px; }
@@ -130,9 +120,9 @@ a { color: inherit; }
 .settings-page select { height: auto; min-height: 40px; padding: 8px; }
 .settings-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
 @media (max-width: 900px) {
-  .has-management { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .has-management { display: grid; grid-template-columns: minmax(0, 1fr); }
   .has-management .site-nav { grid-row: 2; grid-column: 1 / -1; min-width: 0; }
-  .has-management .header-account { grid-row: 1; grid-column: 2; max-width: 100%; }
+  .has-management .header-account { grid-row: 1; grid-column: 1; max-width: 100%; }
 }
 
 .otp-main { display: grid; place-items: center; min-height: min(68vh, 680px); padding: 32px 0; }
@@ -358,12 +348,9 @@ input:focus, select:focus { border-color: var(--head); outline: none; }
 @media (max-width: 700px) {
   .app { padding: 14px 10px 40px; }
   .top { gap: 5px; padding: 4px; margin-bottom: 10px; }
-  /* A mobilos sávban a navigáció és a fiók kapja a helyet. */
-  .top .brand { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
   .site-nav { gap: 2px; }
   .nav-link { gap: 6px; min-height: 40px; padding: 0 6px; font-size: 13px; }
   .nav-link svg { width: 16px; height: 16px; }
-  .has-management .brand { position: static; width: auto; height: auto; overflow: hidden; text-overflow: ellipsis; clip-path: none; font-size: 14px; }
   .has-management .site-nav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
   .has-management .nav-link { flex-direction: column; gap: 3px; min-height: 46px; padding: 4px 1px; font-size: 11px; }
   .has-management .nav-link span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

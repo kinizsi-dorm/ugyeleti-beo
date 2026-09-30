@@ -687,7 +687,7 @@ function headerIcon(name) {
 
 function roleIconHTML() {
   const role = isAdmin() ? (inAdminView() ? 'admin' : 'duty') : S.me.role;
-  if (!isAdmin()) return `<span class="role-icon" data-role="${esc(role)}" role="img" aria-label="${esc(ROLE_LABEL[role])}" title="${esc(ROLE_LABEL[role])}">${headerIcon(role)}</span>`;
+  if (!isAdmin()) return `<span class="role-icon" data-role="${esc(role)}" role="img" aria-label="${esc(ROLE_LABEL[role])}">${headerIcon(role)}</span>`;
   const label = inAdminView() ? 'Admin nézet – váltás ügyelő nézetre' : 'Ügyelő nézet – váltás admin nézetre';
   return `<button type="button" class="role-icon role-switch" data-role="${role}" data-act="admin-view" aria-label="${label}" title="${label}" aria-pressed="${inAdminView()}">${headerIcon(role)}</button>`;
 }
@@ -698,7 +698,6 @@ function headerHTML() {
     : `<button type="button" class="nav-link" data-act="roster" aria-haspopup="dialog" aria-expanded="${S.dialog?.kind === 'roster'}">${headerIcon('users')}<span>Névsor</span></button>`) : '';
   return `
   <header class="top ${isApprover() ? 'has-management' : ''}">
-    <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
   <nav class="site-nav" aria-label="Fő navigáció">
     <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_SUBPAGE ? 'aria-current="page"' : ''}>
       ${headerIcon('calendar')}<span>Beosztás</span>
@@ -759,10 +758,6 @@ function setAdminView(enabled) {
   render();
   const toggle = document.querySelector('[data-act="admin-view"]');
   toggle?.focus({ preventScroll: true });
-  if (toggle && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    toggle.classList.add('role-changed');
-    toggle.addEventListener('animationend', () => toggle.classList.remove('role-changed'), { once: true });
-  }
 }
 
 function settingsScreen() {
