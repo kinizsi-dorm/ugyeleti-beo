@@ -167,4 +167,3 @@ Részletes leírás: [Google-belépés Supabase-szel](https://supabase.com/docs/
 | Nem módosítható egy nap | Ellenőrizd, hogy a hét nincs-e véglegesítve, és a megfelelő nézetet használod-e. |
 | Sikertelen mentés vagy elavult beosztás | Ellenőrizd az internetkapcsolatot, majd kérj frissítést. Ha megmarad a hiba, az üzemeltető ellenőrizze a Supabase állapotát és a mentési hibaüzenetet. |
 | Az OTP nem töltődik be | Próbáld újra; ha kell, lépj be ismét. Tartós hibánál ellenőrizni kell az OTP-függvényt és a titkos kulcs beállítását. |
-| Nincs statisztika | Lehet, hogy még nincs lezárt hét vagy nincs adat a szűrt időszakra. Betöltési hibánál ellenőrizni kell a `supabase/stats.sql` telepítését. |
