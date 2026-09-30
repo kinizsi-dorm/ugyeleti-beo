@@ -372,6 +372,7 @@ async function boot() {
     S.phase = 'board';
     render();
     startSync();
+    openRosterFromHash();
   } catch (e) {
     S.error = e.message || String(e);
     S.phase = IS_SUBPAGE ? 'signin' : (S.me ? 'board' : 'blocked');
@@ -668,35 +669,54 @@ function blockedScreen() {
   </div>`;
 }
 
+const HEADER_ICONS = {
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/>',
+  lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5v1"/>',
+  chart: '<path d="M4 3v17h17M8 15v-4M13 15V6M18 15V9"/>',
+  settings: '<path d="m9 3-.5 3-2 1-2.8-1-2 3.5L4 11v2l-2.3 1.5 2 3.5 2.8-1 2 1L9 21h6l.5-3 2-1 2.8 1 2-3.5L20 13v-2l2.3-1.5-2-3.5-2.8 1-2-1L15 3Z"/><circle cx="12" cy="12" r="3"/>',
+  viewer: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  duty: '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
+  approver: '<path d="m12 2 3 2 3.5.5.5 3.5 2 4-2 3-.5 3.5-3.5.5-3 3-3-3-3.5-.5L5 15l-2-3 2-4 .5-3.5L9 4Z"/><path d="m8 12 2.5 2.5L16 9"/>',
+  admin: '<path d="M12 3 4 6v6c0 4.5 4.5 7.5 8 9 3.5-1.5 8-4.5 8-9V6Z"/><path d="M12 3v18M4 11h16"/>',
+};
+
+function headerIcon(name) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${HEADER_ICONS[name]}</svg>`;
+}
+
+function roleIconHTML() {
+  const role = isAdmin() ? (inAdminView() ? 'admin' : 'duty') : S.me.role;
+  if (!isAdmin()) return `<span class="role-icon" data-role="${esc(role)}" role="img" aria-label="${esc(ROLE_LABEL[role])}" title="${esc(ROLE_LABEL[role])}">${headerIcon(role)}</span>`;
+  const label = inAdminView() ? 'Admin nézet – váltás ügyelő nézetre' : 'Ügyelő nézet – váltás admin nézetre';
+  return `<button type="button" class="role-icon role-switch" data-role="${role}" data-act="admin-view" aria-label="${label}" title="${label}" aria-pressed="${inAdminView()}">${headerIcon(role)}</button>`;
+}
+
 function headerHTML() {
-  const myNum = IS_SUBPAGE ? null : numOf(S.me.id);
+  const rosterNav = isApprover() ? (IS_SUBPAGE
+    ? `<a class="nav-link" href="${esc(new URL('#roster', ROOT_URL).href)}">${headerIcon('users')}<span>Névsor</span></a>`
+    : `<button type="button" class="nav-link" data-act="roster" aria-haspopup="dialog" aria-expanded="${S.dialog?.kind === 'roster'}">${headerIcon('users')}<span>Névsor</span></button>`) : '';
   return `
-  <header class="top ${isAdmin() ? 'has-admin' : ''} ${inAdminView() ? 'admin-active' : ''}">
+  <header class="top ${isApprover() ? 'has-management' : ''}">
     <div class="brand">Ügyeleti tábla ${S.demo ? '<span>· bemutató</span>' : ''}</div>
   <nav class="site-nav" aria-label="Fő navigáció">
     <a class="nav-link" href="${esc(ROOT_URL.href)}" ${!IS_SUBPAGE ? 'aria-current="page"' : ''}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg>Beosztás
+      ${headerIcon('calendar')}<span>Beosztás</span>
     </a>
     <a class="nav-link" href="${esc(new URL('otp/', ROOT_URL).href)}" ${IS_OTP ? 'aria-current="page"' : ''}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg>OTP
+      ${headerIcon('lock')}<span>OTP</span>
     </a>
+    ${rosterNav}
     ${inAdminView() ? `
-    <span class="nav-link nav-pending" role="link" aria-label="Statisztika hamarosan" aria-disabled="true" title="Statisztika – hamarosan" data-route="${esc(new URL('stats/', ROOT_URL).href)}">Statisztika <small>hamarosan</small></span>
-    <a class="nav-link" href="${esc(new URL('settings/', ROOT_URL).href)}" ${IS_SETTINGS ? 'aria-current="page"' : ''}>Beállítások</a>` : ''}
+    <span class="nav-link nav-pending" role="link" aria-label="Statisztika hamarosan" aria-disabled="true" title="Statisztika – hamarosan" data-route="${esc(new URL('stats/', ROOT_URL).href)}">${headerIcon('chart')}<span>Stat</span></span>
+    <a class="nav-link" href="${esc(new URL('settings/', ROOT_URL).href)}" ${IS_SETTINGS ? 'aria-current="page"' : ''}>${headerIcon('settings')}<span>Beállítások</span></a>` : ''}
   </nav>
-    ${isAdmin() ? `<div class="view-toggle" role="group" aria-label="Nézet">
-      <button type="button" data-act="admin-view" data-v="off" aria-pressed="${!inAdminView()}">Ügyelő</button>
-      <button type="button" data-act="admin-view" data-v="on" aria-pressed="${inAdminView()}">Admin</button>
-    </div>` : ''}
     <div class="header-account">
       <span class="user" title="${esc(S.me.name)} · ${esc(S.me.email || '')}">
-        ${myNum ? `<b class="badge">${myNum}</b>` : ''}<span class="user-name">${esc(S.me.name)}</span>
-        <em>${isAdmin() ? (inAdminView() ? 'admin' : 'ügyelő') : ROLE_LABEL[S.me.role] || ''}</em>
+        <span class="user-name">${esc(S.me.name)}</span>
       </span>
+      ${roleIconHTML()}
       <div class="header-actions">
-        ${!IS_SUBPAGE && isApprover() ? `<button class="btn btn-sm btn-quiet header-action" data-act="roster" aria-label="Névsor" title="Névsor">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5v1"/></svg><span>Névsor</span>
-        </button>` : ''}
         <button class="btn btn-sm btn-quiet header-action" data-act="signout" aria-label="Kilépés" title="Kilépés">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v16h5M10 12h11M17 8l4 4-4 4"/></svg><span>Kilépés</span>
         </button>
@@ -737,7 +757,12 @@ function setAdminView(enabled) {
   S.draft = null;
   el('modal-root').innerHTML = '';
   render();
-  document.querySelector(`[data-act="admin-view"][data-v="${enabled ? 'on' : 'off'}"]`)?.focus();
+  const toggle = document.querySelector('[data-act="admin-view"]');
+  toggle?.focus({ preventScroll: true });
+  if (toggle && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    toggle.classList.add('role-changed');
+    toggle.addEventListener('animationend', () => toggle.classList.remove('role-changed'), { once: true });
+  }
 }
 
 function settingsScreen() {
@@ -880,6 +905,7 @@ function barHTML() {
 
 function renderDialog(force) {
   const root = el('modal-root');
+  document.querySelector('[data-act="roster"]')?.setAttribute('aria-expanded', String(S.dialog?.kind === 'roster'));
   if (!S.dialog) { root.innerHTML = ''; return; }
   if (isViewer() || (S.dialog.kind === 'roster' && !isApprover())) { S.dialog = null; S.draft = null; root.innerHTML = ''; return; }
   if (S.dialog.kind === 'roster' && !force && root.querySelector('.dialog')) return;
@@ -999,6 +1025,12 @@ function openRoster() {
   renderDialog(true);
 }
 
+function openRosterFromHash() {
+  if (IS_SUBPAGE || S.phase !== 'board' || location.hash !== '#roster') return;
+  history.replaceState({}, '', appUrl());
+  openRoster();
+}
+
 async function saveRoster() {
   if (!isApprover() || S.dialog?.kind !== 'roster') return;
   const d = S.draft;
@@ -1055,7 +1087,7 @@ function onClick(e) {
       case 'today': S.cursor = new Date(); recomputeDays(); render(); loadMonth(true); return;
       case 'refresh': loadMonth(true); return;
       case 'roster': openRoster(); return;
-      case 'admin-view': setAdminView(btn.dataset.v === 'on'); return;
+      case 'admin-view': setAdminView(!inAdminView()); return;
       case 'save-settings': saveAppSettings(); return;
       case 'close': S.dialog = null; S.draft = null; renderDialog(); return;
       case 'mode': if (isApprover()) { S.mode = btn.dataset.v; render(); } return;
@@ -1164,6 +1196,7 @@ function onInput(e) {
 }
 
 document.addEventListener('click', onClick);
+window.addEventListener('hashchange', openRosterFromHash);
 document.addEventListener('input', onInput);
 document.addEventListener('change', onInput);
 document.addEventListener('pointerdown', onPointerDown);

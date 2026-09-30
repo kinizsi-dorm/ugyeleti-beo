@@ -74,11 +74,32 @@ async function fixture(t, { status=200, ttl=25000, code='012345', mobile=false, 
   return {page,state,errors,calls:()=>calls};
 }
 
+async function assertNavigation(page, labels) {
+  const links = page.locator('.site-nav .nav-link');
+  await links.first().waitFor({state:'visible'});
+  assert.deepEqual(await links.allTextContents().then(values=>values.map(value=>value.trim())), labels);
+  for (const link of await links.all()) {
+    assert.equal(await link.locator('svg[aria-hidden="true"]').count(), 1);
+    assert.ok(await link.locator('svg').isVisible());
+  }
+}
+
+async function assertRoleIcon(page, role, {toggle=false} = {}) {
+  const icon = page.locator('.header-account .role-icon');
+  assert.equal(await icon.getAttribute('data-role'), role);
+  assert.equal(await icon.locator('svg[aria-hidden="true"]').count(), 1);
+  assert.equal(await icon.textContent().then(value=>value.trim()), '');
+  assert.equal(await page.locator('.user em, .view-toggle').count(), 0);
+  assert.equal(await page.locator('.header-account [data-act="admin-view"]').count(), toggle ? 1 : 0);
+}
+
 test('OTP deep link, identity, copy leading zero, navigation, mobile layout', async t => {
   const {page,errors} = await fixture(t,{mobile:true});
   await page.goto(`${origin}/ugyeleti-beo/otp`);
   await page.waitForSelector('.otp-code:not(:disabled)');
   assert.match(await page.locator('.user').textContent(), /Teszt Elek/);
+  await assertNavigation(page,['Beosztás','OTP']);
+  await assertRoleIcon(page,'duty');
   assert.equal(await page.locator('[aria-current="page"]').textContent().then(s=>s.trim()), 'OTP');
   assert.equal(await page.locator('.weeks').count(), 0);
   await page.locator('.otp-code').click();
@@ -162,11 +183,21 @@ test('admin starts as duty, switches to approver controls, and back to own marks
   const {page,errors} = await fixture(t,{init:()=>{window.testRole='admin';}});
   await page.goto(`${origin}/ugyeleti-beo/`);
   await page.waitForSelector('.weeks');
-  assert.equal(await page.getByRole('button',{name:'Ügyelő',exact:true}).getAttribute('aria-pressed'),'true');
+  const roleSwitch = page.locator('[data-act="admin-view"]');
+  assert.equal(await roleSwitch.getAttribute('aria-pressed'),'false');
+  assert.equal(await roleSwitch.getAttribute('aria-label'),'Ügyelő nézet – váltás admin nézetre');
+  await assertRoleIcon(page,'duty',{toggle:true});
+  await assertNavigation(page,['Beosztás','OTP']);
   assert.equal(await page.getByRole('button',{name:'Névsor',exact:true}).count(),0);
   await page.locator('.cell').first().click();
   assert.equal(await page.evaluate(()=>window.testWrites.at(-1).table),'marks');
-  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  await roleSwitch.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await roleSwitch.getAttribute('aria-pressed'),'true');
+  assert.equal(await roleSwitch.getAttribute('aria-label'),'Admin nézet – váltás ügyelő nézetre');
+  assert.equal(await roleSwitch.evaluate(element=>element===document.activeElement),true);
+  await assertRoleIcon(page,'admin',{toggle:true});
+  await assertNavigation(page,['Beosztás','OTP','Névsor','Stat','Beállítások']);
   assert.ok(await page.getByRole('button',{name:'Mindenki beosztása'}).isVisible());
   assert.ok(await page.getByRole('button',{name:'Véglegesítés',exact:true}).first().isVisible());
   assert.equal(await page.getByRole('link',{name:'Statisztika hamarosan'}).getAttribute('aria-disabled'),'true');
@@ -181,7 +212,11 @@ test('admin starts as duty, switches to approver controls, and back to own marks
   await page.waitForSelector('.dialog',{state:'detached'});
   assert.match(await page.locator('.user-name').textContent(),/Módosított Név/);
   assert.equal(await page.evaluate(()=>window.testWrites.at(-1).table),'people');
-  await page.getByRole('button',{name:'Ügyelő',exact:true}).click();
+  await roleSwitch.focus();
+  await page.keyboard.press('Space');
+  assert.equal(await roleSwitch.getAttribute('aria-pressed'),'false');
+  assert.equal(await roleSwitch.evaluate(element=>element===document.activeElement),true);
+  await assertRoleIcon(page,'duty',{toggle:true});
   assert.equal(await page.getByRole('button',{name:'Mindenki beosztása'}).count(),0);
   assert.equal(await page.getByRole('link',{name:'Beállítások',exact:true}).count(),0);
   assert.match(await page.locator('.bar').textContent(),/jobb kattintás.*hosszú nyomás/);
@@ -191,9 +226,12 @@ test('admin starts as duty, switches to approver controls, and back to own marks
 test('admin settings persist separately; view persists across pages; OTP keeps running on toggle', async t => {
   const {page,errors} = await fixture(t,{init:()=>{window.testRole='admin';}});
   await page.goto(`${origin}/ugyeleti-beo/`);
-  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  const roleSwitch = page.locator('[data-act="admin-view"]');
+  await roleSwitch.click();
   await page.getByRole('link',{name:'Beállítások',exact:true}).click();
   assert.equal(new URL(page.url()).pathname,'/ugyeleti-beo/settings/');
+  await assertNavigation(page,['Beosztás','OTP','Névsor','Stat','Beállítások']);
+  await assertRoleIcon(page,'admin',{toggle:true});
   await page.getByLabel('Hónap nézete').selectOption('calendar');
   await page.getByRole('button',{name:'Mentés',exact:true}).click();
   await page.getByText('Beállítások mentve',{exact:true}).waitFor();
@@ -202,12 +240,22 @@ test('admin settings persist separately; view persists across pages; OTP keeps r
   assert.equal(await page.getByLabel('Hónap nézete').inputValue(),'calendar');
   await page.getByRole('link',{name:'OTP',exact:true}).click();
   await page.waitForSelector('.otp-code:not(:disabled)');
-  await page.getByRole('button',{name:'Ügyelő',exact:true}).click();
+  assert.equal(await roleSwitch.getAttribute('aria-pressed'),'true');
+  await roleSwitch.click();
+  await assertRoleIcon(page,'duty',{toggle:true});
+  await assertNavigation(page,['Beosztás','OTP']);
   assert.equal(await page.locator('.otp-code').isEnabled(),true);
   await page.locator('.otp-code').click();
   assert.equal(await page.evaluate(()=>window.testCopied),'012345');
-  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  await roleSwitch.click();
+  await assertRoleIcon(page,'admin',{toggle:true});
+  await assertNavigation(page,['Beosztás','OTP','Névsor','Stat','Beállítások']);
   assert.equal(await page.locator('.otp-code').isEnabled(),true);
+  await page.getByRole('link',{name:'Névsor',exact:true}).click();
+  await page.getByRole('heading',{name:'Névsor',exact:true}).waitFor();
+  assert.equal(new URL(page.url()).pathname,'/ugyeleti-beo/');
+  assert.equal(await page.locator('.dialog select option[value="admin"]').count(),2);
+  assert.equal(await roleSwitch.getAttribute('aria-pressed'),'true');
   assert.deepEqual(errors,[]);
 });
 
@@ -216,12 +264,21 @@ test('nonadmins cannot enter admin mode or settings; approver keeps roster acces
     const {page} = await fixture(t,{init:new Function(`window.testRole='${role}'; sessionStorage.setItem('admin-view.test-person','on');`)});
     await page.goto(`${origin}/ugyeleti-beo/`);
     await page.waitForSelector('.weeks');
-    assert.equal(await page.locator('.view-toggle').count(),0);
+    await assertRoleIcon(page,role);
+    await assertNavigation(page,role==='approver' ? ['Beosztás','OTP','Névsor'] : ['Beosztás','OTP']);
     assert.equal(await page.getByRole('link',{name:'Beállítások',exact:true}).count(),0);
     if (role==='approver') {
       await page.getByRole('button',{name:'Névsor',exact:true}).click();
       assert.equal(await page.locator('.dialog select option[value="admin"]').count(),0);
       assert.equal(await page.locator('.dialog [data-f="weekMode"]').count(),0);
+      await page.goto(`${origin}/ugyeleti-beo/otp/`);
+      await page.waitForSelector('.otp-code:not(:disabled)');
+      await assertRoleIcon(page,role);
+      await assertNavigation(page,['Beosztás','OTP','Névsor']);
+      await page.getByRole('link',{name:'Névsor',exact:true}).click();
+      await page.getByRole('heading',{name:'Névsor',exact:true}).waitFor();
+      assert.equal(new URL(page.url()).pathname,'/ugyeleti-beo/');
+      assert.equal(await page.locator('.dialog select option[value="admin"]').count(),0);
     }
     await page.goto(`${origin}/ugyeleti-beo/settings/`);
     await page.getByText('A beállításokat csak admin módosíthatja.').waitFor();
@@ -233,16 +290,18 @@ test('admin header remains usable on narrow screens in both views', async t => {
   const {page} = await fixture(t,{init:()=>{window.testRole='admin';}});
   await page.goto(`${origin}/ugyeleti-beo/`);
   await page.waitForSelector('.weeks');
-  for (const mode of ['Admin','Ügyelő']) {
-    await page.getByRole('button',{name:mode,exact:true}).click();
+  for (const adminMode of [true,false]) {
+    await page.locator('[data-act="admin-view"]').click();
     for (const width of [320,375,768,1024,1280]) {
       await page.setViewportSize({width,height:900});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
       if (width<=700) assert.equal(await page.locator('.site-nav').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
+      await assertNavigation(page,adminMode ? ['Beosztás','OTP','Névsor','Stat','Beállítások'] : ['Beosztás','OTP']);
+      await assertRoleIcon(page,adminMode ? 'admin' : 'duty',{toggle:true});
       assert.ok((await page.locator('.user-name').boundingBox()).width>20);
     }
   }
-  await page.getByRole('button',{name:'Admin',exact:true}).click();
+  await page.locator('[data-act="admin-view"]').click();
   await fs.mkdir(path.join(root,'test-results'),{recursive:true});
   await page.screenshot({path:path.join(root,'test-results/admin-desktop.png'),fullPage:true});
   await page.setViewportSize({width:375,height:812});
