@@ -1,202 +1,170 @@
 # Ügyeleti tábla
 
-Havi ügyeleti beosztás öt embernek. Mindenki bejelöli, mikor ér rá, Vanda kiosztja a napokat és véglegesíti, utána a kész beosztás letölthető naptárfájlként.
+Az alkalmazásban a résztvevők megjelölik, mikor érnek rá, a véglegesítő vagy az admin elkészíti és lezárja a heti beosztást. A saját ügyeletek naptárba menthetők. Az OTP-oldalon az aktuális egyszer használatos jelszó, a Stat oldalon a véglegesített hetek összesítése érhető el.
 
----
+## Gyors kezdés
 
-## ⚠️ Először ezt
+1. Nyisd meg az alkalmazást, és lépj be a névsorban rögzített Google-fiókoddal.
+2. A **Beosztás** oldalon válaszd ki a hónapot, majd jelöld a ráérésedet a nyitott heteken.
+3. Véglegesítőként vagy admin nézetben készítsd el a beosztást, ellenőrizd, majd hetente véglegesítsd.
+4. A lezárt hét **Naptárba** gombjával mentsd el a saját ügyeleteidet.
 
-A képernyőképen megosztott **Client secret (`GOCSPX-…`) nyilvánosságra került, cseréld le.** Google Cloud Console → Clients → *KinizsiSSO* → a meglévő secret törlése, majd **Add secret**. Az új értéket csak a Supabase felületére másold be (2/3. lépés), a kódba soha.
+## Belépés, navigáció és szerepkörök
 
-## 1. Google OAuth beállítása
+A belépés Google-fiókkal történik. Az alkalmazás a névsorban rögzített fiók alapján azonosít. Ha nem a megfelelő fiókkal léptél be, válaszd a **Belépés másik fiókkal** lehetőséget, vagy lépj ki a fejléc jobb oldalán.
 
-A már létrehozott *KinizsiSSO* klienshez két dolgot kell megadni:
+A felső navigáció sorrendje: **Beosztás → OTP → Névsor → Stat → Beállítások**. A szerepkörödnek megfelelő menüpontok jelennek meg. Ezekkel az aloldalakról is visszatérhetsz a beosztáshoz. Telefonon a kilépést ikon jelöli.
 
-1. **Authorized redirect URIs** → `https://<projekt-ref>.supabase.co/auth/v1/callback`
-   A `<projekt-ref>` a Supabase projekt azonosítója, a Project URL-ből olvasható ki.
-2. **Authorized JavaScript origins** → `https://<felhasznalonev>.github.io`
+| Szerepkör | Mire használható? | Ikon |
+|---|---|---|
+| Megtekintő | Megnézheti a beosztást és használhatja az OTP-oldalt. Nem jelöl és nem szerkeszt. | Szem |
+| Ügyelő | Jelölheti a saját ráérését, megnézheti a napi jelöléseket, naptárba mentheti a saját véglegesített ügyeleteit és használhatja az OTP-t. | Emberalak |
+| Véglegesítő | Az ügyelő funkcióin felül kioszthatja, véglegesítheti és feloldhatja a heteket, valamint szerkesztheti a névsort. | Jóváhagyást jelző pipa |
+| Admin | Ügyelőként is részt vesz a beosztásban. Admin nézetben a véglegesítő funkcióit, továbbá a Stat és Beállítások oldalakat is eléri, és admin szerepet is beállíthat. | Admin nézetben pajzs, ügyelő nézetben emberalak |
 
-Ezután **Google Auth Platform → Audience**: mivel az alkalmazás tesztelési módban van, a belépés csak a felvett tesztfelhasználóknak működik. **Vedd fel mind az öt e-mail-címet tesztfelhasználóként**, különben a saját fiókjukkal sem tudnak belépni. (Alternatíva: az app közzététele, de öt embernél a tesztfelhasználós mód egyszerűbb és egyben plusz védelem.)
+Az admin a felhasználóneve melletti **szerepikonra kattintva** vált ügyelő és admin nézet között. A választást az adott böngészőlap az oldalak közötti navigáláskor megjegyzi; kilépéskor alaphelyzetbe áll. Más szerepkörök ikonja csak jelzés, nem kapcsoló.
 
-> A Google figyelmeztet, hogy a beállítások érvényesülése pár perctől néhány óráig tarthat. Ha az első próbálkozás `redirect_uri_mismatch` hibát ad, várj pár percet.
+## Beosztás és ráérésjelölés
 
-## 2. Supabase projekt
+A hónapot a bal és jobb nyíllal válthatod; számítógépen a billentyűzet nyilai is használhatók. A **Mai hónap** gomb visszavisz az aktuális hónaphoz. A következő hét sárga kiemelést kap, a mai nap külön jelölést.
 
-1. [supabase.com](https://supabase.com) → **New project**, európai régióval.
-2. **SQL Editor** → **New query** → a `supabase/schema.sql` teljes tartalma → **Run**. Ez létrehozza a táblákat, a jogosultsági szabályokat és az öt embert.
-   Ellenőrzés: `select name, email, role from people order by sort_order;` — öt sort kell adnia.
-3. **Authentication → Sign In / Providers → Google**: bekapcsol, majd be a **Client ID** és az **új Client secret**. Mentés.
-4. **Authentication → URL Configuration**:
-   - *Site URL*: `https://<felhasznalonev>.github.io/<repo>/`
-   - *Redirect URLs*: ugyanez a cím (érdemes `http://localhost:*` is, ha helyben is próbálod)
-5. **Project Settings → API**: innen másold ki a **Project URL**-t és az **anon / publishable** kulcsot az `assets/config.js`-be:
+A hét címsorára kattintva a hét összecsukható és kinyitható. A véglegesített hetek alapból összecsukva jelennek meg. A fejlécben látható például a **4/7 nap** felirat: ez a már beosztott napok száma.
 
-```js
-window.APP_CONFIG = {
-  SUPABASE_URL: "https://xxxxxxxx.supabase.co",
-  SUPABASE_ANON_KEY: "eyJhbGci..."
-};
-```
+A napokon látható sorszámok a beosztás feletti résztvevőlistához tartoznak. A résztvevők mellett az aktuálisan megjelenített időszakra kiosztott napjaik száma is látható. A saját jelölésedet vastagabb keret emeli ki.
 
-Ez a két érték nyugodtan lehet nyilvános: az anon kulccsal bejelentkezés nélkül semmit nem lehet olvasni vagy írni. A `service_role` kulcs viszont soha nem kerülhet ide.
+### Saját ráérés megadása
 
-## 3. GitHub Pages
+Ügyelőként egy nyitott hét napjára kattintva vagy koppintva az alábbi állapotok váltakoznak:
 
-1. Új repó (pl. `ugyelet`), a mappa tartalmának feltöltése (**Add file → Upload files** is jó).
-2. **Settings → Pages** → *Deploy from a branch* → `main` / `/ (root)` → **Save**.
-3. Pár perc múlva él: `https://<felhasznalonev>.github.io/ugyelet/`. Ez a link megy körbe az ötüknek.
+**Ráér → Ha muszáj → Nem ér rá → üres**
 
----
-
-## Használat
-
-### Admin szerepkör és nézetváltás
-
-A kliens a meglévő `people.role` mező **`admin`** értékét kezeli admin szerepkörként.
-Senki nem kap automatikusan adminjogot. A szerepet a Supabase-ben kézzel állítod be;
-a felhasználó ezután frissítse az oldalt. A kliens ugyanazokat az API-hívásokat használja,
-mint korábban; ehhez a módosításhoz nincs mellékelt SQL-frissítés vagy Edge Function-változás.
-
-Az admin továbbra is beosztható ügyelő, alapból ügyelői nézettel. Csak neki jelenik meg
-a fejléc **Ügyelő / Admin** kapcsolója. **Admin** nézetben ugyanúgy kioszthat, véglegesíthet,
-feloldhat és szerkesztheti a névsort, mint a véglegesítő. A nézetválasztást az adott
-böngészőlapon, felhasználónként megjegyezzük az oldalak közötti navigálásnál; kilépéskor töröljük.
-A kapcsoló a felület nézetét váltja, a szerver meglévő jogosultságait nem módosítja.
-
-**Adminjogot csak admin állíthat be a felületen:** neki jelenik meg az admin opció a
-szerepválasztóban. A véglegesítő ügyelő, véglegesítő és megtekintő szerepeket választhat;
-a meglévő adminfiókok a névsorában csak olvashatók. Ez kliensoldali megjelenítési szabály,
-nem új szerveroldali ellenőrzés.
-
-A **Névsor** kizárólag személyeket és szerepeket kezel. A **Hónap nézete** az admin nézetben
-megjelenő külön **Beállítások** fülre (`/ugyeleti-beo/settings/`) került. Ez a teljes csapat
-nézetét befolyásolja; a felületen csak admin módosíthatja. A **Statisztika** fül egyelőre
-inaktív, „hamarosan” jelzéssel. A tervezett `/ugyeleti-beo/stats/` aloldal még nem készült el.
-
-A Beállítások oldalt a bejelentkezett főoldalról nyithatod meg. Közvetlen megnyitáskor
-a Google-belépés a már beállított főoldali visszatérési címet használja, majd admin esetén
-visszavisz a Beállítások oldalra. Új OAuth-visszatérési címet nem szükséges felvenni.
-
-### OTP-aloldal – egyszeri beállítás
-
-A fejléc alatti **Beosztás / OTP** navigáció mindkét oldalon elérhető. Az új oldal címe
-`https://<felhasznalonev>.github.io/ugyeleti-beo/otp/` (a záró perjel nélküli címet
-a GitHub Pages ide irányítja). Jobb felül ugyanaz a bejelentkezett felhasználó látszik.
-A kódra kattintva a hat számjegy szóköz nélkül kerül a vágólapra, a kezdő nullákkal együtt.
-
-**Javasolt tárolás: Supabase → Edge Functions → Secrets.** GitHub Pagesen nincs szerveroldali
-titoktárolás: a JavaScriptbe épített GitHub secret is kiolvasható lenne. Itt csak az aktuális
-kód jut el a böngészőbe, a secret kizárólag az Edge Function környezetében marad.
-Nem szükséges új adatbázistábla vagy a meglévő séma újbóli futtatása.
-
-1. Supabase Dashboard → **Edge Functions → Secrets**: hozz létre egy **`OTP_SECRET`** nevű
-   secretet. Értéke a célrendszer hitelesítő alkalmazáshoz adott **Base32 TOTP-kulcsa** legyen
-   (a QR-kód `otpauth://…` címének `secret` paramétere, nem a teljes cím, és nem egy aktuális kód).
-   A megvalósítás **SHA-1 / 6 számjegy / 30 másodperc** beállítást használ; a célrendszernek
-   ugyanezeket kell használnia. Ugyanazt a közös kódot látja minden engedélyezett felhasználó.
-2. Supabase Dashboard → **Edge Functions → Deploy a new function → Via Editor**.
-   A függvény neve pontosan **`otp`** legyen. A szerkesztő `index.ts` fájljának teljes
-   tartalmát cseréld le a repóban található
-   **[supabase/functions/otp/index.ts](supabase/functions/otp/index.ts)** teljes tartalmára,
-   majd kattints a **Deploy function** gombra. Ez egyetlen önálló fájl: nincs szükség
-   másik fájlra, importra, csomagtelepítésre vagy CLI-re.
-   Ezután az **otp → Details → Function configuration** résznél kapcsold **OFF** állásba
-   a **Verify JWT with legacy secret** kapcsolót, és mentsd a beállítást.
-   Ez csak a régi gateway-ellenőrzést kapcsolja ki; a függvény **maga
-   ellenőrzi a tokent a Supabase Auth szolgáltatásával**, majd a meglévő `whoami` RPC-vel
-   ellenőrzi a névsor-tagságot. Bejelentkezés nélkül és névsoron kívüli fiókkal nincs kód.
-   A névsor összes szerepe, a megtekintő is használhatja az OTP-oldalt.
-3. **Authentication → URL Configuration → Redirect URLs**: a főoldal meglévő címe mellé
-   vedd fel a **teljes OTP-címet is, záró perjellel**, például
-   `https://<felhasznalonev>.github.io/ugyeleti-beo/otp/`.
-   A Google Cloud callback címe változatlan marad.
-4. Pushold a módosított fájlokat a meglévő GitHub Pages ágra. Az `assets/config.js`
-   jelenlegi értékei megfelelőek; **OTP secretet ne írj ebbe a fájlba**.
-   Az Edge Function későbbi módosításakor az **otp → Code** böngészős szerkesztőben
-   cseréld a fájl tartalmát, majd **Deploy updates**. Ellenőrizd, hogy a fenti JWT-kapcsoló
-   továbbra is OFF állásban van. Az OTP secret cseréjéhez elég a Supabase Secretsben átírni.
-   Nincs deployment vagy ébren tartó GitHub Action; az üzembe helyezéshez GitHub secret sem kell.
-
-**A push önmagában az új felületet teszi közzé.** A működő OTP-hez az első három lépést
-is el kell végezni. Beállítás előtt az oldal érthető hibaüzenetet mutat, nem készít hamis kódot.
-
-Próbáld ki a weboldalon Google-belépés után az **OTP** menüpontot. A Dashboard tesztelőjének
-alapértelmezett anon vagy service-role kulcsa önmagában nem felhasználói munkamenet:
-azzal a függvény szándékosan `401` választ ad.
-
-A kód a szerver órája alapján készül, automatikusan frissül, és lejáratkor azonnal eltűnik.
-Háttérbe tett lapon nem kérdezgetjük a szervert; visszatéréskor friss kódot kérünk.
-Az OTP nem kerül helyi tárolóba vagy naplóba. A hagyományos TOTP egy időablakon belül
-ugyanazt a kódot adja; az egyszeri felhasználás kikényszerítése a kódot fogadó rendszer feladata.
-
-Opcionális fejlesztői ellenőrzés helyben: `node --test tests/otp-server.test.mjs`
-(Node.js 22.18+ vagy 24+). Az üzembe helyezéshez ez nem szükséges.
-A tesztek nyilvános RFC-tesztkulcsot használnak, éles szolgáltatást nem hívnak.
-
-Opcionális böngészőtesztek (szintén tesztadatokkal):
-
-```sh
-npm install --no-save --package-lock=false playwright
-npx playwright install chromium
-node --test tests/otp-browser.test.cjs
-```
-
-A böngészőteszt a navigációt, másolást, lejáratot, hibakezelést, hozzáférést és a
-mobilos elrendezést ellenőrzi. Képernyőképei a Gitből kizárt `test-results/` mappába kerülnek.
-
-Háttér: [Supabase secrets](https://supabase.com/docs/guides/functions/secrets),
-[Edge Function böngészős szerkesztő](https://supabase.com/docs/guides/functions/quickstart-dashboard),
-[RFC 6238 – TOTP](https://www.rfc-editor.org/rfc/rfc6238.html).
-
-### Beosztás
-
-**Megnyitáskor** az oldal magától átdob a Google-belépésre. Utána a fiók e-mail-címe alapján azonosít: nincs névválasztás, nincs jelszó. Ha valaki nem szereplő fiókkal lép be, azt kiírja, és tud másik fiókkal próbálkozni.
-
-**Jelölés (ügyelők és a véglegesítő):** kattints egy napra, a saját jelölésed körbeér: *ráér → ha muszáj → nem ér rá → üres*. A cellák alján lévő öt négyzet a névsor sorrendjében mutatja, ki hogyan jelölt — ugyanaz a logika, mint a régi táblázat oszlopaié, csak egy cellába sűrítve. A sajátodat vastag keret jelöli.
-
-**Telefonon** a hét nem hét oszlopra, hanem hét sorra bomlik: naponként egy sor a dátummal, a nap nevével, a beosztott emberrel és a jelölésekkel. Ugyanaz az elrendezés, mint a régi táblázatban, így semmi nem csúszik össze.
-
-**Megtekintő (Viktor):** csak azt látja, ki melyik napra van beosztva. Jelölések, névsorstatisztika, kiosztás és véglegesítés nála meg sem jelenik.
-
-**Kiosztás (Vanda):** a *Kiosztás* módban a kattintás lépteti, ki legyen aznap ügyeletes — először azok jönnek, akik ráérnek, utána a „ha muszáj" jelölésűek. A *Saját jelölés* módra váltva Vanda ugyanúgy tudja jelölni a saját ráéréseit, mint bárki más. A *Javaslat kitöltése* az üres napokat tölti fel a legkevesebb ügyeletet kapóval, kerülve az egymást követő két napot; ez csak javaslat, szabadon átírható.
-
-**Bármelyik nap részletei:** hosszú nyomás (mobilon) vagy jobb klikk. Itt látszik mindenki jelölése névvel, és innen olyan embert is be lehet osztani, aki nemet mondott.
-
-**Véglegesítés hetenként:** minden hét külön zárul le, a hét fejlécében lévő *Véglegesítés* gombbal. A lezárt héten senki nem tud jelölni és a beosztás sem módosul, a többi hét viszont nyitva marad. A *Feloldás* visszavonja. A mai naphoz képest **következő hét sárga kiemelést kap**, hogy mindig látszódjon, melyikkel kell foglalkozni.
-
-**Naptárba küldés:** véglegesítés után a hét fejlécében a *Naptárba* gomb nyílik meg. Itt emberenként egy **Naptárba** gomb van: megnyitja a Google Naptárat a kész, egész napos eseménnyel, és egy koppintás elmenteni. Ez fájl nélkül működik, telefonon is — iPhone-on ez a javasolt út. Ugyanitt letölthető `.ics` fájl is, ami asztali Google Naptárba (*Beállítások → Importálás és exportálás*) és Outlookba importálható. Az egymást követő ügyeleti napok egy eseménybe kerülnek, és van hozzá emlékeztető az előző nap délre.
-
-**Hónap határa:** egy hónap tábláját azok a hetek adják, amelyek hétfője az adott hónapra esik — 2026 januárja így 01.05-től 02.01-ig tart, pontosan úgy, mint a korábbi táblázatban. Az admin a Beállítások fülön válthat naptári hónapra.
-
-**Névsor:** a véglegesítő és az admin (Admin nézetben) szerkesztheti. Itt lehet nevet, Google-címet és szerepet módosítani, embert felvenni vagy törölni. Adminjogot és adminfiókot csak admin kezelhet. Új ember felvételekor ne feledd őt tesztfelhasználóként is felvenni a Google Auth Platformon.
-
-### Statisztika
-
-A Supabase Dashboard **SQL Editor** felületén egyszer futtasd le a
-[`supabase/stats.sql`](supabase/stats.sql) teljes tartalmát. Utána a forrásokat
-GitHubra feltöltve a **Stat** menüpont az `/ugyeleti-beo/stats/` oldalra vezet.
-A menüpont az admin nézetben jelenik meg. Nincs szükség új OAuth-visszatérési címre.
-
-Az oldal egyszer hívja a `get_stats` adatbázis-függvényt. Az időszak és az ember
-szűrése a letöltött heti összesítéseken történik, további kérés nélkül.
-Csak a `weeks.locked = true` hetek és a jelenlegi nem megtekintő névsor szerepelnek.
-Új lezárás vagy feloldás az oldal következő betöltésekor kerül a statisztikába.
-A heti jelölési átlag minden választ számol, a „Nem ér rá” jelölést is.
-A jelöletlen napok személy–nap párok; a névsorba kerülés előtti üres napok kimaradnak.
-A történeti névsor hiányában az aktuális névsor alapján készül az összesítés.
-
-## Ha valami nem működik
-
-| Tünet | Ok |
+| Szín | Jelentés |
 |---|---|
-| `redirect_uri_mismatch` | A Google kliensben nem pontosan a Supabase callback URL szerepel, vagy még nem lépett érvénybe. |
-| „Access blocked / nem tesztfelhasználó" | Az adott cím nincs felvéve tesztfelhasználóként a Google Auth Platform → Audience alatt. |
-| „Nincs hozzáférés" képernyő | A fiók e-mail-címe nincs a `people` táblában. Betűre egyeznie kell. |
-| Üres oldal, hosszú töltés | Ellenőrizd a Supabase projekt állapotát; szünetelés esetén a dashboardon *Restore*. |
-| A többiek jelölése nem frissül | A valós idejű kapcsolat nem épült fel; 45 másodpercenként és a *Frissítés* gombra így is betölt. |
-| `.ics` nem tölt le | Csak véglegesített hétre érhető el. |
-| iPhone nem nyitja meg az `.ics`-t | Használd helyette a *Naptárba* gombot: az a Google Naptárat nyitja meg kész eseménnyel. |
+| Zöld | Ráér |
+| Lila | Ha muszáj |
+| Piros | Nem ér rá |
+| Szürke | Még nem jelölt |
 
-## Költség
+A szürke, jelöletlen állapot nem jelent elutasítást. A változtatás automatikusan mentődik. Véglegesítőként és admin nézetben a saját ráérésed megadásához válaszd a **Saját jelölés** módot.
 
-Mindkét szolgáltatás ingyenes csomagja bőven elég: az egész évi adat néhány száz kilobájt. Bankkártya egyikhez sem kell.
+Egy nap részleteit számítógépen **jobb kattintással**, telefonon **hosszú nyomással** nyithatod meg. Itt név szerint láthatók a jelölések, és a saját válaszod közvetlenül is kiválasztható vagy a **Törlés** gombbal eltávolítható. A lezárt hét részletei megtekinthetők, de nem módosíthatók.
+
+A beosztás adatai automatikusan frissülnek. Ha szükséges, a **Frissítés** gombbal kézzel is lekérheted a legutóbbi állapotot. A mentést és a frissítés idejét a hónap melletti jelzés mutatja.
+
+### Kiosztás, javaslat és véglegesítés
+
+Ezek a műveletek a véglegesítőnek és az adminnak admin nézetben érhetők el.
+
+1. Válaszd a **Mindenki beosztása** módot.
+2. A napra kattintva léptetheted az ügyeleteseket: először a ráérők, majd a „Ha muszáj” választ adók, végül a még nem jelölők következnek. A sor végén a nap újra üressé válik.
+3. Közvetlen kijelöléshez nyisd meg a nap részleteit jobb kattintással vagy hosszú nyomással. Itt bárkit kiválaszthatsz a beosztható résztvevők közül, szükség esetén azt is, aki „Nem ér rá” választ adott. A **Nincs beosztva** lehetőség törli az aznapi kiosztást.
+4. Ellenőrizd a hét összes napját, majd kattints a **Véglegesítés** gombra.
+
+A hét **Javaslat** gombja automatikusan kitölti az üres napokat. Előnyben részesíti a ráérőket, és ha nincs ilyen résztvevő, a „Ha muszáj” jelölésekből választ. Figyelembe veszi a megjelenített időszakban már kiosztott napok számát, és lehetőség szerint nem oszt egymás utáni napokat ugyanarra a résztvevőre. A meglévő kiosztásokat megtartja. A javaslatot véglegesítés előtt nézd át.
+
+Az **Ürítés** a kiválasztott hét beosztását törli, a ráérésjelöléseket megtartja. Ehhez megerősítést kér az alkalmazás.
+
+A **Véglegesítés** után a héten sem a jelölések, sem a beosztás nem szerkeszthető. Ha maradt üres nap, az alkalmazás figyelmeztet, de megerősítéssel így is lezárhatod a hetet. A **Feloldás** ismét szerkeszthetővé teszi az egész hetet. A többi hét állapotát ezek a műveletek nem változtatják meg.
+
+## Saját ügyeletek mentése naptárba
+
+A véglegesített hét **Naptárba** gombja a saját ügyeleteidet mutatja. Ha nincs beosztásod azon a héten, ezt az alkalmazás jelzi.
+
+- Az egyes napok melletti **Naptárba** gomb kitöltött Google Naptár-eseményt nyit meg. A mentést a naptárban kell befejezni.
+- Az **Az én napjaim (.ics)** gomb a hét saját ügyeleteit egy naptárfájlba menti. A fájl naptáralkalmazásba, például asztali Google Naptárba vagy Outlookba importálható. Telefonon a közvetlen **Naptárba** gomb használata egyszerűbb.
+
+Minden ügyelet külön, **19:00–23:00** közötti esemény, budapesti időzónával. Az `.ics` fájl két órával a kezdés előtti emlékeztetőt is tartalmaz.
+
+A naptárba mentés nem folyamatos szinkronizálás. Ha a beosztás később változik, a korábban elmentett naptáreseményeket is módosítani kell.
+
+## OTP – egyszer használatos jelszó
+
+Az **OTP** menüpont minden szerepkörnek elérhető. Az oldal egy hatjegyű kódot mutat, amely 30 másodperces időablakokban változik. A visszaszámlálás és az időjelző sáv mutatja, meddig használható az aktuális kód.
+
+A számra kattintva vagy koppintva a teljes kód a vágólapra kerül, a kezdő nullákkal együtt. A sikeres másolást visszajelzés jelzi. Ha a böngésző nem engedi a másolást, a kijelzett kód kézzel is beírható.
+
+A kód automatikusan frissül. Ha másik böngészőlapra váltasz, majd visszatérsz, az oldal friss kódot kér. Hiba esetén az **Újrapróbálás** gomb használható. A résztvevők ugyanabból a közös beállításból származó kódot látják.
+
+## Névsor
+
+A **Névsor** menüpontot a véglegesítő és az admin admin nézetben látja. Itt résztvevőt adhatsz hozzá, módosíthatod a megjelenítendő nevét, a belépéshez használt Google-fiók címét és a szerepkörét, vagy törölheted a résztvevőt.
+
+- Az **+ Új személy** gomb új sort hoz létre. Töltsd ki mindkét szövegmezőt, és válassz szerepkört.
+- A változtatások a **Mentés** gombbal kerülnek az adatbázisba. A **Mégsem** vagy a bezárás elveti a még el nem mentett szerkesztést.
+- A sor végén lévő törlésgomb eltávolítja a résztvevőt. Mentéskor az alkalmazás megerősítést kér, mert a résztvevő jelölései és kiosztásai is elvesznek.
+- Admin szerepet a felületen csak admin állíthat be. A véglegesítő ügyelő, véglegesítő és megtekintő szerepet választhat; a meglévő admin résztvevőket nem szerkesztheti és nem törölheti.
+
+A névsorban legalább két kitöltött résztvevő szükséges. Új belépőnél a Google SSO tesztfelhasználói listáját is frissíteni kell, ha a Google-alkalmazás tesztelési módban működik. Szerepkörváltozás után az érintett résztvevő frissítse az alkalmazást.
+
+## Stat – statisztika
+
+A **Stat** menüpont admin nézetben jelenik meg. A dashboard kizárólag a **véglegesített hetek** adatait tartalmazza. Az adatokat az oldal megnyitásakor tölti le; a szűrők változtatása azonnal, újabb lekérés nélkül frissíti a kijelzett eredményeket.
+
+### Szűrők
+
+Felül, egymás mellett található az időszak és az ember szűrője.
+
+- A dátumcsúszka bal fogantyúja a kezdő, a jobb a záró hetet állítja. A fogantyúk teljes heteket választanak ki. A rovátkák a hétfői hétkezdéseket jelölik, a felirat a pontos időszakot mutatja. Billentyűzettel a fókuszba helyezett csúszka nyilaival is válthatsz hetet.
+- A **Teljes időszak** gomb az összes elérhető hetet kijelöli. Megnyitáskor a legutolsó véglegesített hét hónapja jelenik meg.
+- Az **Ember** listában egy résztvevőt vagy a **Mindenki** lehetőséget választhatod. Megtekintők nem szerepelnek a listában.
+- Ha az időszakon belül nyitott hét is van, az nem kerül a számításba. A szűrők alatt látható a kiválasztott véglegesített hetek és emberek száma.
+
+### A mutatók jelentése
+
+| Mutató | Mit számol? |
+|---|---|
+| Beosztott napok | A kiválasztott résztvevők ügyeletei, hétköznapi és hétvégi bontással. |
+| Ráér jelölések | A „Ráér” válaszok száma. Alatta külön látszik a „Ha muszáj” és a „Nem ér rá” válaszok száma. |
+| Heti jelölési átlag | Átlagosan hány napra adott választ egy résztvevő egy héten. Mindhárom válasz beleszámít. Csak azokat a személy–hét párokat veszi figyelembe, amelyekhez van értékelhető nap. |
+| Jelöletlen napok | Hány személy–nap párhoz nem érkezett válasz. Ha ugyanarra a napra három résztvevő nem jelölt, az három jelöletlen nap. A „Nem ér rá” válasz nem ide tartozik. |
+
+A névsorba kerülés előtti üres napok nem számítanak hiányzó jelölésnek. Ha korábbi napra már van tárolt jelölés vagy kiosztás, az bekerül az összesítésbe. A kimutatás a jelenlegi névsorból készül, nem őriz külön történeti névsorváltozatokat.
+
+### Diagramok
+
+- **Heti ráérésjelölések:** a válaszok személyenkénti heti átlaga, színes oszlopokkal. Az oszlop feletti szám a megjelölt napok átlaga. A **Heti adatok táblázatban** részben a pontos heti darabszámok, a beosztások és a hétvégi ügyeletek is megnézhetők.
+- **Heti beosztások:** a kiválasztott résztvevők heti ügyeletszáma, hétköznapra és hétvégére bontva.
+- **Jelölési hőtérkép:** személyenként és hetente mutatja, hány napra érkezett válasz. A sötétebb cella több megjelölt napot jelent. A cellára kattintva a diagram alatt megjelenik a válaszok részletes bontása. A gondolatjel azt jelenti, hogy az adott személyhez azon a héten nincs adat.
+
+Hosszabb időszaknál a diagramok és táblázatok vízszintesen görgethetők. Új véglegesítés vagy feloldás után töltsd újra az oldalt, hogy a statisztika az új állapottal számoljon. Lekérési hiba esetén az **Újrapróbálás** gomb kér új adatot.
+
+## Beállítások
+
+A **Beállítások** oldal admin nézetben érhető el. A **Hónap nézete** az egész csapat megjelenítését szabályozza:
+
+- **Teljes hetek a hónap első hétfőjétől:** azok a teljes hetek láthatók, amelyek hétfője a kiválasztott hónapra esik. Az utolsó hét átnyúlhat a következő hónapra.
+- **Naptári hónap, teljes hetekre kiegészítve:** a hónap minden napja látszik, hétfőtől vasárnapig kiegészített hetekkel. A szomszédos hónap napjai halványak, közvetlenül nem szerkeszthetők ebben a nézetben.
+
+A választást a **Mentés** gombbal kell rögzíteni.
+
+## Üzemeltetés röviden
+
+A weboldalt a **GitHub Pages**, az adatbázist, a beléptetést és az OTP kiszolgálását a **Supabase** biztosítja. A Supabase-projekt a központi kollégiumi fiókhoz tartozik.
+
+- **Weboldal frissítése:** a módosított fájlokat töltsd fel a GitHub Pageshez beállított ágra. A közzétételi forrás a repó **Settings → Pages** menüjében állítható. A kliens Supabase-kapcsolatát az `assets/config.js` tartalmazza.
+- **Adatkezelés:** a napi névsor- és beosztáskezelés az alkalmazásból végezhető. A Supabase **Table Editor** felületén az adatbázis közvetlenül is megtekinthető. Nagyobb adatváltoztatás előtt készíts mentést vagy exportot.
+- **Statisztika:** az első beállításhoz a `supabase/stats.sql` teljes tartalmát kell futtatni a Supabase **SQL Editor** felületén. A függvény frissítéséhez ugyanez a fájl újrafuttatható.
+- **OTP:** a Supabase **Edge Functions → Secrets** részében az `OTP_SECRET` értéke a célrendszer Base32 TOTP-kulcsa. A beállítás 6 számjegyes, 30 másodperces, SHA-1 alapú kódot használ. Az `otp` nevű függvényt a böngészős szerkesztőben, a `supabase/functions/otp/index.ts` teljes tartalmával lehet létrehozni vagy frissíteni, majd közzétenni. A függvény saját belépésellenőrzése miatt a **Verify JWT with legacy secret** kapcsoló ennél a függvénynél legyen kikapcsolva. A titkos kulcsot ne másold a kliensfájlokba. A szerkesztő használatát a [Supabase útmutatója](https://supabase.com/docs/guides/functions/quickstart-dashboard) írja le.
+- **Karbantartás:** nincs külön ébrentartó folyamat. Ha a Supabase-projekt szünetel, az üzemeltető a Dashboardon indíthatja újra. A weboldal fájljainak feltöltése önmagában nem frissíti az adatbázis-függvényt és az OTP-függvényt.
+
+### Google SSO beállítása röviden
+
+1. A Google Cloud Console-ban válassz vagy hozz létre projektet. A **Google Auth Platform** felületén állítsd be az alkalmazás adatait és az **Audience** részt. Tesztelési módban vedd fel a belépőket a tesztfelhasználók közé.
+2. A **Clients** alatt hozz létre egy **Web application** típusú OAuth-klienst. Az **Authorized JavaScript origins** mezőbe az alkalmazás webhelyének eredete kerüljön, útvonal nélkül.
+3. Az **Authorized redirect URIs** mezőbe a Supabase Google-szolgáltatójánál látható callback címet másold: `https://<projektazonosító>.supabase.co/auth/v1/callback`.
+4. Supabase: **Authentication → Sign In / Providers → Google**. Engedélyezd a Google-belépést, és másold be az OAuth-kliens **Client ID** és **Client secret** értékét.
+5. Supabase: **Authentication → URL Configuration**. A **Site URL** az alkalmazás teljes főoldali címe legyen. A **Redirect URLs** listába a főoldal és az `/otp/` aloldal teljes címe kerüljön, záró perjellel. A Stat és Beállítások oldalak a főoldalon keresztül térnek vissza a belépésből.
+6. Próbálj belépni egy névsorban szereplő Google-fiókkal. A Google beállításai mellett a névsorban rögzített fióknak is egyeznie kell a belépéshez használttal.
+
+Részletes leírás: [Google-belépés Supabase-szel](https://supabase.com/docs/guides/auth/social-login/auth-google) és [visszatérési címek beállítása](https://supabase.com/docs/guides/auth/redirect-urls).
+
+### Gyakoribb elakadások
+
+| Jelenség | Teendő |
+|---|---|
+| A fiók nem fér hozzá az alkalmazáshoz | Ellenőrizd, hogy a megfelelő Google-fiókkal léptél-e be, és az szerepel-e a névsorban. |
+| A Google nem engedi a belépést | Tesztelési módban ellenőrizd a tesztfelhasználói listát. Visszatérési címre utaló hibánál hasonlítsd össze a Google és a Supabase beállításait. |
+| Nem módosítható egy nap | Ellenőrizd, hogy a hét nincs-e véglegesítve, és a megfelelő nézetet használod-e. |
+| Sikertelen mentés vagy elavult beosztás | Ellenőrizd az internetkapcsolatot, majd kérj frissítést. Ha megmarad a hiba, az üzemeltető ellenőrizze a Supabase állapotát és a mentési hibaüzenetet. |
+| Az OTP nem töltődik be | Próbáld újra; ha kell, lépj be ismét. Tartós hibánál ellenőrizni kell az OTP-függvényt és a titkos kulcs beállítását. |
+| Nincs statisztika | Lehet, hogy még nincs lezárt hét vagy nincs adat a szűrt időszakra. Betöltési hibánál ellenőrizni kell a `supabase/stats.sql` telepítését. |
