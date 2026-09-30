@@ -1044,7 +1044,6 @@ async function saveRoster() {
       color: p.color || '#5F6368', role, can_duty: role !== 'viewer', sort_order: i + 1
     });
   });
-  if (rows.filter((r) => r.role === 'approver').length !== 1) { toast('Pontosan egy véglegesítő legyen'); return; }
   if (rows.length < 2) { toast('Legalább két embert adj meg'); return; }
   const removed = d.removed.filter((id) => S.people.some((p) => p.id === id));
   if (removed.length && !confirm('A törölt emberek jelölései és beosztott napjai is elvesznek. Folytatod?')) return;
